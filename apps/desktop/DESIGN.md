@@ -1,4 +1,4 @@
-# Design System: DevBridge Desktop
+# Design System: Capubridge Desktop
 
 **Stack:** Vue 3 · shadcn-vue (New York style) · Tailwind CSS v4 · lucide-vue-next
 
@@ -6,7 +6,7 @@
 
 ## 1. Visual Theme & Atmosphere
 
-DevBridge is a **professional developer tool** — the visual language is deliberately closer to VS Code, Zed, or JetBrains than to a SaaS web dashboard. The UI must feel like a native application that happens to run in a WebView, not a website that happens to open in a window.
+Capubridge is a **professional developer tool** — the visual language is deliberately closer to VS Code, Zed, or JetBrains than to a SaaS web dashboard. The UI must feel like a native application that happens to run in a WebView, not a website that happens to open in a window.
 
 **Core principles:**
 
@@ -154,7 +154,7 @@ The root layout is a **CSS grid** (`grid-template-columns: [sidebar] 1fr; grid-t
 
 ### Data Tables (TanStack Table v8)
 
-This is the most used component in DevBridge. Tables must look like a terminal/IDE data grid, not a web table.
+This is the most used component in Capubridge. Tables must look like a terminal/IDE data grid, not a web table.
 
 - **Header row:** 32px height, 11px uppercase label, `var(--muted-foreground)`, 1px bottom border. Background `var(--muted)`.
 - **Data rows:** 28px height (dense), alternating via `:nth-child(even)` at 3% opacity overlay, 1px bottom border using `var(--border)` at 50% opacity
@@ -306,7 +306,7 @@ Left 2px border in `var(--primary)` + background at 15% primary opacity. This pa
 
 The project uses shadcn-vue **New York** style. Installed components and their desktop-adapted usage:
 
-| Component                             | Variant/Usage in DevBridge                                                            |
+| Component                             | Variant/Usage in Capubridge                                                           |
 | ------------------------------------- | ------------------------------------------------------------------------------------- |
 | `Button`                              | `ghost` for toolbars; `default` for primary CTA; `destructive` with confirmation only |
 | `Sidebar` + family                    | `variant="inset"`, `collapsible="icon"` — the main navigation shell                   |
@@ -335,10 +335,10 @@ npx shadcn-vue@latest add <component-name> -c apps/desktop
 
 ## 9. Prompting Guide (For AI-Assisted Screens)
 
-When asking an AI to generate a new screen or component for DevBridge, include this context block:
+When asking an AI to generate a new screen or component for Capubridge, include this context block:
 
 ```
-This is a Tauri 2 desktop developer tool (DevBridge), NOT a web dashboard.
+This is a Tauri 2 desktop developer tool (Capubridge), NOT a web dashboard.
 Design language: VS Code / JetBrains aesthetic — dense, dark, flat, sharp corners.
 Stack: Vue 3 <script setup>, shadcn-vue (New York), Tailwind CSS v4 OKLCH variables.
 

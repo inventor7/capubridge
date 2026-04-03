@@ -1,4 +1,4 @@
-# DevBridge — Project Specification
+# Capubridge — Project Specification
 
 > The ultimate desktop dev tool for hybrid app developers.  
 > ADB GUI + deep browser storage inspector + remote device debugging in one Tauri app.  
@@ -48,7 +48,7 @@ Existing tools force you to juggle:
 - Aya/TangoADB — great ADB GUI but zero browser/storage awareness
 - Various Chrome extensions — work only on local pages, break on remote debugging targets
 
-### What DevBridge is
+### What Capubridge is
 
 A single Tauri desktop app that:
 
@@ -119,7 +119,7 @@ Hybrid app developers using Capacitor/Ionic, debugging on physical Android devic
 ## 3. Project Structure
 
 ```
-devbridge/
+Capubridge/
 ├── src/                          # Vue frontend
 │   ├── main.ts
 │   ├── App.vue
@@ -333,9 +333,9 @@ ADB daemon (adb server on host machine, port 5037)
     ↕ adb forward tcp:9222 localabstract:chrome_devtools_remote
 localhost:9222  ← Chrome DevTools HTTP endpoint
     ↕ WebSocket (CDP protocol)
-DevBridge Frontend (Vue)
+Capubridge Frontend (Vue)
     ↕ Tauri IPC (invoke/events)
-DevBridge Backend (Rust)
+Capubridge Backend (Rust)
     ↕ tauri-plugin-shell → child process
 adb binary (for device commands, logcat, file ops)
 ```

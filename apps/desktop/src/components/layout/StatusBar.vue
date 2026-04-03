@@ -22,6 +22,6 @@ import { Circle, Wifi, HardDrive, Activity } from "lucide-vue-next";
       <HardDrive class="w-2.5 h-2.5" />
       14.2 MB / 2.4 GB
     </span>
-    <span class="ml-auto text-dimmed">DevBridge v0.1.0-alpha</span>
+    <span class="ml-auto text-dimmed">Capubridge v0.1.0-alpha</span>
   </footer>
 </template>

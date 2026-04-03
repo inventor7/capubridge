@@ -1,4 +1,4 @@
-# DevBridge — Phase 1 Tasks
+# Capubridge — Phase 1 Tasks
 
 > Cut scope: foundation + IDB read. Done when you can connect a USB Android device and browse its IndexedDB.
 

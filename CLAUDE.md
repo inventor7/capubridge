@@ -65,7 +65,7 @@ The `desktop` app imports `utils` as `import { ... } from "utils"` via workspace
 
 ## Project Overview
 
-DevBridge is a Tauri 2 desktop app built with Vue 3 + TypeScript.
+Capubridge is a Tauri 2 desktop app built with Vue 3 + TypeScript.
 It is a developer tool for hybrid app (Capacitor/Ionic) developers that combines:
 
 - ADB device management GUI
