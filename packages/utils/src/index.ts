@@ -1,3 +1,12 @@
-export function fn() {
-  return "Hello, tsdown!";
-}
+export { CDPClient } from "./cdp/client.js";
+export { fetchLocalTargets } from "./cdp/targets.js";
+export type { RawCDPTarget } from "./cdp/targets.js";
+export { IDBDomain } from "./cdp/domains/indexeddb.js";
+export type {
+  IDBDatabaseInfo,
+  IDBObjectStoreInfo,
+  IDBIndexInfo,
+  IDBRecord,
+  GetDataParams,
+  GetDataResult,
+} from "./cdp/domains/indexeddb.js";

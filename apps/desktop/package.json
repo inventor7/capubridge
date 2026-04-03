@@ -10,12 +10,32 @@
     "tauri": "vpx tauri.cmd dev"
   },
   "dependencies": {
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/vue-query": "catalog:",
+    "@tanstack/vue-table": "catalog:",
+    "@tauri-apps/api": "catalog:",
     "@tauri-apps/cli": "catalog:",
-    "utils": "workspace:*"
+    "@types/node": "catalog:",
+    "@vueuse/core": "catalog:",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
+    "lucide-vue-next": "catalog:",
+    "pinia": "catalog:",
+    "reka-ui": "catalog:",
+    "tailwind-merge": "catalog:",
+    "tailwindcss": "catalog:",
+    "utils": "workspace:*",
+    "vue": "catalog:",
+    "vue-router": "catalog:"
   },
   "devDependencies": {
+    "@unocss/preset-wind": "catalog:",
+    "@unocss/transformer-directives": "catalog:",
+    "@unocss/transformer-variant-group": "catalog:",
+    "@vitejs/plugin-vue": "catalog:",
+    "tw-animate-css": "catalog:",
     "typescript": "~5.9.3",
-    "vite": "catalog:",
+    "vite": "npm:@voidzero-dev/vite-plus-core@^0.1.15",
     "vite-plus": "catalog:"
   }
 }

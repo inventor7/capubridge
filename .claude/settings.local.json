@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(vp add:*)",
+      "Bash(node -e \"const p = require\\('./node_modules/vue/package.json'\\); console.log\\(p.version\\)\")",
+      "Bash(node -e \"const p = require\\('./node_modules/pinia/package.json'\\); console.log\\(p.version\\)\")",
+      "Bash(node -e ':*)",
+      "Bash(vp install:*)",
+      "Bash(vp check:*)",
+      "Bash(vp pack:*)",
+      "Bash(pnpm dlx:*)",
+      "Bash(attrib +r \"C:\\\\Users\\\\PC\\\\code\\\\ayb\\\\capubridge\\\\pnpm-workspace.yaml\")",
+      "Bash(attrib -r \"C:\\\\Users\\\\PC\\\\code\\\\ayb\\\\capubridge\\\\pnpm-workspace.yaml\")",
+      "mcp__plugin_context7-plugin_context7__resolve-library-id",
+      "mcp__plugin_context7-plugin_context7__query-docs",
+      "Bash(curl -s \"https://raw.githubusercontent.com/unovue/shadcn-vue/dev/apps/v4/src/lib/registry/new-york/ui/sheet/SheetContent.vue\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/unovue/shadcn-vue/dev/apps/v4/src/lib/registry/new-york/ui/sheet/index.ts\")",
+      "Bash(curl -s \"https://api.github.com/repos/unovue/shadcn-vue/git/trees/dev?recursive=1\")",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(i['path']\\) for i in data.get\\('tree',[]\\) if 'sheet' in i['path'].lower\\(\\)]\")",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\); const j=JSON.parse\\(d\\); j.tree.filter\\(i=>i.path.includes\\('sheet'\\)\\).forEach\\(i=>console.log\\(i.path\\)\\)\")",
+      "Bash(pnpm add:*)",
+      "Bash(powershell -Command ':*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File ./add-ui.ps1 sheet)"
+    ]
+  }
+}

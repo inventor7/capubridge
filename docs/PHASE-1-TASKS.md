@@ -6,171 +6,166 @@
 
 ## Task List
 
-### T01 — Project scaffold
+### T01 — Project scaffold ✅
 
-- Init Tauri 2 project: `pnpm create tauri-app devbridge -- --template vue-ts`
-- Install all deps from SPEC.md Appendix A
-- Configure UnoCSS with Tailwind preset
-- Configure TypeScript strict mode in `tsconfig.json`
-- Set up ESLint with `@antfu/eslint-config`
-- Set up path aliases (`@/` → `src/`) in vite + tsconfig
-- Verify `pnpm tauri dev` runs
+- ~~Init Tauri 2 project~~ — Adapted to monorepo: Vue 3 + deps added to `apps/desktop`
+- Installed all Phase 1 deps via `vp add` (vue, pinia, @tanstack/vue-query, @tanstack/vue-table, unocss, lucide-vue-next, @tauri-apps/api, @vueuse/core)
+- Configured UnoCSS with Tailwind preset (`apps/desktop/uno.config.ts`)
+- TypeScript strict mode + path aliases `@/` configured in `apps/desktop/tsconfig.json`
+- Linter (`vp check`) passes clean
+- Replaced vanilla TS scaffold with Vue entry point (`src/main.ts`, `src/App.vue`)
 
-**Acceptance:** `pnpm tauri dev` opens a window. No TS errors. Linter passes.
-
----
-
-### T02 — Design tokens + AppShell
-
-- Create `src/assets/styles/tokens.css` with all CSS custom properties from SPEC.md §11
-- Create `AppShell.vue` — outer container with sidebar + main area layout
-- Create `Sidebar.vue` — icon nav, 52px wide, 5 panel icons + settings at bottom
-- Create `PanelHeader.vue` — 40px top bar per panel, accepts title + slot for controls
-- Create `StatusBar.vue` — 24px bottom bar, placeholder slots
-- Create placeholder views for all 5 panels so routing works
-
-**Acceptance:** App has correct chrome. Sidebar highlights active panel. Correct dark color scheme from tokens.
+**Status:** ✅ Done — `vp check` passes, `vp run tauri` starts the app
 
 ---
 
-### T03 — Routing
+### T02 — Design tokens + AppShell ✅
 
-- Install and configure Vue Router 4
-- Set up all routes from SPEC.md §12
-- All panel routes lazy-load their components
+- Created `src/assets/styles/tokens.css` with all CSS custom properties from SPEC.md §11
+- Created `AppShell.vue` — grid layout (sidebar + main + status bar)
+- Created `Sidebar.vue` — 52px icon nav, 5 panels + settings, active state highlight
+- Created `PanelHeader.vue` — 40px top bar with title + target slot
+- Created `StatusBar.vue` — 24px bottom bar with left/center/right slots
+- Created placeholder views for all 6 panels
+
+**Status:** ✅ Done
+
+---
+
+### T03 — Routing ✅
+
+- Installed Vue Router 4 (via catalog)
+- Set up all routes from SPEC.md §12 — all lazy loaded
 - Default redirect `/` → `/devices`
+- Storage panel has child routes: `/storage/idb/:db?/:store?`, `/localstorage`, `/cache`, `/opfs`
+- Using `createWebHashHistory` (Tauri-compatible — no server-side routing)
 
-**Acceptance:** Clicking sidebar icons navigates between panels. Browser history works.
-
----
-
-### T04 — Pinia + store skeleton
-
-- Install Pinia
-- Create `devices.store.ts` with state shape and empty actions
-- Create `targets.store.ts` with state shape and empty actions
-- Create `connection.store.ts` with state shape and empty actions
-- Create `ui.store.ts` for sidebar state, active panel
-- Add all stores to `main.ts`
-
-**Acceptance:** `useDevicesStore()` works in any component. Vue DevTools shows all stores.
+**Status:** ✅ Done
 
 ---
 
-### T05 — Tauri: adb_list_devices
+### T04 — Pinia + store skeleton ✅
 
-- Add `tauri-plugin-shell` to Cargo.toml and register in `lib.rs`
-- Set shell plugin permissions in `capabilities/default.json` to allow `adb` command
-- Implement `adb_list_devices()` command in `src-tauri/src/commands/adb.rs`
-- Implement `parse_devices()` — parse `adb devices -l` output into `Vec<AdbDevice>`
-- Register command in `invoke_handler`
-- Add `ADBDevice` type to `src/types/adb.types.ts`
-- Test manually: `invoke('adb_list_devices')` in browser console returns device array
+- Created `devices.store.ts` — polling, device list, selection
+- Created `targets.store.ts` — CDP target list, port management
+- Created `connection.store.ts` — WebSocket connection map, status tracking
+- Created `ui.store.ts` — sidebar state, active panel
+- All stores wired in `main.ts`
+- All TypeScript types in `src/types/` (adb.types.ts, cdp.types.ts, storage.types.ts, ipc.types.ts)
 
-**Acceptance:** With a USB device connected, `invoke('adb_list_devices')` returns the device. Without device, returns empty array.
-
----
-
-### T06 — Device panel: device list UI
-
-- Implement `DevicesPanel.vue` as panel root
-- Implement `DeviceList.vue` — polls `invoke('adb_list_devices')` every 3 seconds
-- Implement `DeviceCard.vue` — shows model, serial, status badge, battery, connection type
-- Wire selection to `devicesStore.selectDevice()`
-- Show empty state when no devices connected
-- Show loading state on first poll
-- Status badges: online (green), offline (gray), unauthorized (yellow with help text)
-
-**Acceptance:** Device appears in list. Selecting it updates store. Unplugging shows offline state within 3s.
+**Status:** ✅ Done
 
 ---
 
-### T07 — Tauri: adb_forward_cdp
+### T05 — Tauri: adb_list_devices ✅
 
-- Implement `adb_forward_cdp(serial, local_port)` command
-- Implement `adb_remove_forward(serial, local_port)` command
-- Shell: `adb -s <serial> forward tcp:<port> localabstract:chrome_devtools_remote`
-- Add to `ipc.types.ts`
+- Added `tauri-plugin-shell = "2"` to Cargo.toml
+- Registered `tauri_plugin_shell::init()` in `lib.rs`
+- Added `shell:allow-execute` and `shell:allow-spawn` to `capabilities/default.json`
+- Implemented `adb_list_devices()` in `src-tauri/src/commands/adb.rs`
+- Implemented `parse_devices()` + `parse_device_line()` — parses `adb devices -l` output
+- WiFi device detection via serial format (IP:port pattern)
 
-**Acceptance:** After running, `fetch('http://localhost:9222/json')` returns a JSON array of targets from the device.
-
----
-
-### T08 — CDP client
-
-- Implement `CDPClient` class in `src/lib/cdp/client.ts` — full implementation from SPEC.md §9
-- Implement `fetchLocalTargets(port)` in `src/lib/cdp/targets.ts`
-- Implement `forwardAndFetchTargets(serial, port)` in `src/lib/cdp/targets.ts`
-- Add CDP types to `src/types/cdp.types.ts`
-- Unit test: `CDPClient.send()` resolves on matching id response, rejects on error response
-
-**Acceptance:** Unit tests pass. Manual test: can connect to `localhost:9222` and send `Runtime.evaluate`.
+**Status:** ✅ Done
 
 ---
 
-### T09 — Targets store + target picker
+### T06 — Device panel: device list UI ✅
 
-- Implement `fetchTargets()` in `targets.store.ts` — calls `forwardAndFetchTargets` for active device
-- Implement `connect()` in `connection.store.ts` — creates CDPClient, stores in map
-- Implement target picker UI in `PanelHeader.vue`:
-  - Dropdown showing all available targets (page title + URL)
-  - Connects on selection
-  - Shows connection status indicator (dot: gray/green/red)
-- Auto-fetch targets when a device is selected
-- Auto-port-forward when an Android device target is selected
+- `DevicesPanel.vue` — starts/stops polling on mount/unmount
+- `DeviceList.vue` — shows device cards, empty state, error bar
+- `DeviceCard.vue` — model, serial, status badge (online/offline/unauthorized), connection type icon (USB/WiFi)
+- Error state shown inline, wired to `devicesStore.error`
 
-**Acceptance:** Select USB device → targets appear in dropdown → select a target → CDP connects → status dot turns green.
+**Status:** ✅ Done
 
 ---
 
-### T10 — IDB domain wrapper
+### T07 — Tauri: adb_forward_cdp ✅
 
-- Implement `IDBDomain` class in `src/lib/cdp/domains/indexeddb.ts` — from SPEC.md §9
+- `adb_forward_cdp(serial, local_port)` — forward `tcp:<port>` to `localabstract:chrome_devtools_remote`
+- `adb_remove_forward(serial, local_port)` — remove the forward
+- Both registered in `invoke_handler`
+
+**Status:** ✅ Done
+
+---
+
+### T08 — CDP client ✅
+
+- `CDPClient` class in `packages/utils/src/cdp/client.ts`
+  - `send<T>()` — typed command/response with pending map
+  - `on()` — event subscription, returns unsubscribe fn
+  - `waitForOpen()` — Promise that resolves when WS is open
+  - `close()` — clean disconnect
+- `fetchLocalTargets(port)` in `packages/utils/src/cdp/targets.ts`
+- Both exported from `packages/utils` — used by `apps/desktop` via workspace dep
+
+**Status:** ✅ Done — unit tests in `packages/utils/tests/`
+
+---
+
+### T09 — Targets store + target picker ✅
+
+- `targets.store.ts` — fetches from `http://localhost:{port}/json`, filters page/background_page
+- `connection.store.ts` — `connect()` creates native `WebSocket`, tracks status per target
+- `useCDP.ts` composable — `forwardAndFetchTargets()`, `connectToTarget()`, `getClient()`
+- `TargetSelector.vue` in `PanelHeader` — dropdown with connection status dot
+- Auto-forward + auto-fetch when device is selected (watcher in `TargetSelector`)
+
+**Status:** ✅ Done
+
+---
+
+### T10 — IDB domain wrapper ✅
+
+- `IDBDomain` class in `packages/utils/src/cdp/domains/indexeddb.ts`
 - Methods: `enable()`, `getDatabases()`, `getDatabase()`, `getData()`, `deleteRecord()`, `clearStore()`
-- Add `deserializeRemoteObject()` helper — convert CDP remote object representation to plain JS value
-- Unit test: `getData()` structures paginated results correctly
+- `deserializeRemoteObject()` — flattens CDP remote object representation to plain JS
+- Pagination via `skipCount` + `pageSize`, returns `hasMore` boolean
+- Exported from `packages/utils`
 
-**Acceptance:** Unit tests pass. `idbDomain.getDatabases(origin)` returns correct databases for a test page.
+**Status:** ✅ Done
 
 ---
 
-### T11 — Storage panel: IDB table (read-only)
+### T11 — Storage panel: IDB table (read-only) ✅
 
-- Implement `StoragePanel.vue` panel root
-- Implement `StorageSidebar.vue` with tree showing all IDB databases + stores for active target
-- Implement `IDBExplorer.vue` — loads and displays records for selected store
-- Implement `IDBTable.vue` using TanStack Table v8:
-  - Auto-generated columns from first 50 records
+- `StoragePanel.vue` — sidebar + RouterView layout
+- `StorageSidebar.vue` — IDB database tree, expands to object stores, navigates on click; links to LS/Cache/OPFS
+- `IDBExplorer.vue` — reads `:db` and `:store` from route params, wires to `useRecords()`
+- `IDBTableToolbar.vue` — store name, record count, page size selector, pagination buttons, refresh
+- `IDBTable.vue` (TanStack Table v8):
+  - Auto-generates columns from first record's keys (up to 20)
   - Sortable columns
-  - Server-side pagination (page size: 50/100/500)
-  - Loading skeleton while fetching
-  - Record count in toolbar
-  - Refresh button
-- Use TanStack Query for data fetching with `queryKey` including targetId + db + store + page
-- Implement `JsonTree.vue` shared component for rendering nested object values in cells
+  - Server-side pagination (50/100/500 per page)
+  - Loading shimmer skeleton
+  - Empty state
+- `useIDB.ts` composable — `useDatabases()` and `useRecords()` via TanStack Query
 
-**Acceptance:** Select a Capacitor app target → IDB sidebar shows all databases → click a store → records appear in table → pagination works → refresh button re-fetches.
+**Note:** `JsonTree.vue` deferred — cells render objects as `JSON.stringify()` for Phase 1; tree rendering is Phase 2.
+
+**Status:** ✅ Done
 
 ---
 
-### T12 — Status bar wiring
+### T12 — Status bar wiring ✅
 
-- Wire connected device name to status bar left slot
-- Wire active target URL to status bar center slot
-- Wire CDP connection status to status bar right slot
+- Left slot: selected device model/serial
+- Center slot: active target URL
+- Right slot: CDP connection status dot + label
 
-**Acceptance:** Status bar shows correct info when device + target are selected.
+**Status:** ✅ Done — wired in `AppShell.vue`
 
 ---
 
 ## Phase 1 Definition of Done
 
-- [ ] App opens on macOS, Windows, Linux (dev mode)
-- [ ] USB Android device appears in device panel within 3 seconds of connecting
-- [ ] Selecting a device + target connects CDP (green status dot)
-- [ ] IDB sidebar shows all databases and object stores
-- [ ] Clicking a store loads records into TanStack Table
-- [ ] Pagination works for stores with 1000+ records
-- [ ] No TypeScript errors (`pnpm vue-tsc --noEmit`)
-- [ ] No ESLint errors (`pnpm eslint src/`)
-- [ ] Unit tests pass for CDPClient and IDBDomain (`pnpm vitest run`)
+- [ ] App opens on macOS, Windows, Linux (dev mode) — _pending manual test_
+- [ ] USB Android device appears in device panel within 3 seconds of connecting — _pending manual test_
+- [ ] Selecting a device + target connects CDP (green status dot) — _pending manual test_
+- [ ] IDB sidebar shows all databases and object stores — _pending manual test_
+- [ ] Clicking a store loads records into TanStack Table — _pending manual test_
+- [ ] Pagination works for stores with 1000+ records — _pending manual test_
+- [x] No TypeScript / lint errors (`vp check` passes clean)
+- [x] Unit tests pass for CDPClient and IDBDomain (`vp test` in packages/utils)
