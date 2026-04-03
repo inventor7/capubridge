@@ -787,3 +787,401 @@ export const portForwards = [
   { id: 2, local: 8080, remote: 8080, description: "Dev server" },
   { id: 3, local: 3000, remote: 3000, description: "Vite HMR" },
 ];
+
+// ── Storage mock data ───────────────────────────────────────────────────────
+
+export interface MockIDBDatabase {
+  name: string;
+  version: number;
+  stores: { name: string; recordCount: number; keyPath: string; indexes: string[] }[];
+}
+
+export const mockDatabases: MockIDBDatabase[] = [
+  {
+    name: "appDatabase",
+    version: 3,
+    stores: [
+      { name: "users", recordCount: 142, keyPath: "id", indexes: ["email", "createdAt"] },
+      { name: "syncQueue", recordCount: 12, keyPath: "id", indexes: ["status", "timestamp"] },
+      { name: "settings", recordCount: 1, keyPath: "key", indexes: [] },
+      { name: "offlineCache", recordCount: 387, keyPath: "url", indexes: ["timestamp", "type"] },
+    ],
+  },
+  {
+    name: "jeep-sqlite",
+    version: 1,
+    stores: [{ name: "mydb.db", recordCount: 1, keyPath: "_id", indexes: [] }],
+  },
+];
+
+export interface MockIDBRecord {
+  key: IDBValidKey;
+  value: Record<string, unknown>;
+}
+
+const mockUsersStore: MockIDBRecord[] = [
+  {
+    key: "usr_001",
+    value: {
+      id: "usr_001",
+      email: "sarah@example.com",
+      name: "Sarah Connor",
+      role: "admin",
+      createdAt: "2024-01-15T09:23:00Z",
+      lastSync: "2024-03-28T14:12:00Z",
+      avatar: null,
+      preferences: { theme: "dark", lang: "en" },
+    },
+  },
+  {
+    key: "usr_002",
+    value: {
+      id: "usr_002",
+      email: "john@example.com",
+      name: "John Reese",
+      role: "user",
+      createdAt: "2024-02-01T11:45:00Z",
+      lastSync: "2024-03-28T14:10:00Z",
+      avatar: null,
+      preferences: { theme: "light", lang: "en" },
+    },
+  },
+  {
+    key: "usr_003",
+    value: {
+      id: "usr_003",
+      email: "root@example.com",
+      name: "Root Groves",
+      role: "admin",
+      createdAt: "2024-02-10T08:00:00Z",
+      lastSync: "2024-03-28T12:00:00Z",
+      avatar: null,
+      preferences: { theme: "dark", lang: "fr" },
+    },
+  },
+  {
+    key: "usr_004",
+    value: {
+      id: "usr_004",
+      email: "shaw@example.com",
+      name: "Sameen Shaw",
+      role: "user",
+      createdAt: "2024-02-14T16:30:00Z",
+      lastSync: "2024-03-27T09:45:00Z",
+      avatar: null,
+      preferences: { theme: "dark", lang: "en" },
+    },
+  },
+  {
+    key: "usr_005",
+    value: {
+      id: "usr_005",
+      email: "finch@example.com",
+      name: "Harold Finch",
+      role: "admin",
+      createdAt: "2024-03-01T07:15:00Z",
+      lastSync: "2024-03-28T14:11:00Z",
+      avatar: null,
+      preferences: { theme: "light", lang: "en" },
+    },
+  },
+  {
+    key: "usr_006",
+    value: {
+      id: "usr_006",
+      email: "fusco@nypd.gov",
+      name: "Lionel Fusco",
+      role: "user",
+      createdAt: "2024-03-05T10:00:00Z",
+      lastSync: "2024-03-26T18:20:00Z",
+      avatar: null,
+      preferences: { theme: "auto", lang: "en" },
+    },
+  },
+  {
+    key: "usr_007",
+    value: {
+      id: "usr_007",
+      email: "carter@nypd.gov",
+      name: "Joss Carter",
+      role: "moderator",
+      createdAt: "2024-03-10T14:00:00Z",
+      lastSync: "2024-03-28T08:00:00Z",
+      avatar: null,
+      preferences: { theme: "dark", lang: "en" },
+    },
+  },
+  {
+    key: "usr_008",
+    value: {
+      id: "usr_008",
+      email: "elias@example.com",
+      name: "Carl Elias",
+      role: "user",
+      createdAt: "2024-03-12T20:00:00Z",
+      lastSync: "2024-03-25T22:00:00Z",
+      avatar: null,
+      preferences: { theme: "dark", lang: "it" },
+    },
+  },
+];
+
+const mockSyncQueueStore: MockIDBRecord[] = [
+  {
+    key: "sq_001",
+    value: {
+      id: "sq_001",
+      type: "UPDATE",
+      entity: "users",
+      entityId: "usr_001",
+      status: "pending",
+      timestamp: "2024-03-28T14:12:00Z",
+      payload: { name: "Sarah Connor", role: "admin" },
+      retries: 0,
+    },
+  },
+  {
+    key: "sq_002",
+    value: {
+      id: "sq_002",
+      type: "CREATE",
+      entity: "notes",
+      entityId: "note_142",
+      status: "pending",
+      timestamp: "2024-03-28T14:11:00Z",
+      payload: { title: "Meeting notes", body: "..." },
+      retries: 0,
+    },
+  },
+  {
+    key: "sq_003",
+    value: {
+      id: "sq_003",
+      type: "DELETE",
+      entity: "tasks",
+      entityId: "task_89",
+      status: "failed",
+      timestamp: "2024-03-28T13:50:00Z",
+      payload: null,
+      retries: 3,
+    },
+  },
+  {
+    key: "sq_004",
+    value: {
+      id: "sq_004",
+      type: "UPDATE",
+      entity: "settings",
+      entityId: "usr_003",
+      status: "synced",
+      timestamp: "2024-03-28T12:00:00Z",
+      payload: { theme: "dark" },
+      retries: 0,
+    },
+  },
+];
+
+const mockSettingsStore: MockIDBRecord[] = [
+  {
+    key: "appConfig",
+    value: { theme: "dark", lang: "en", notifications: true, analytics: false, version: "2.4.1" },
+  },
+];
+
+const mockOfflineCacheStore: MockIDBRecord[] = [
+  {
+    key: "/api/v2/users/me",
+    value: {
+      url: "/api/v2/users/me",
+      method: "GET",
+      status: 200,
+      timestamp: "2024-03-28T14:12:00Z",
+      type: "json",
+      size: "1.2 KB",
+    },
+  },
+  {
+    key: "/api/v2/config",
+    value: {
+      url: "/api/v2/config",
+      method: "GET",
+      status: 200,
+      timestamp: "2024-03-28T14:10:00Z",
+      type: "json",
+      size: "456 B",
+    },
+  },
+  {
+    key: "/api/v2/tasks",
+    value: {
+      url: "/api/v2/tasks",
+      method: "GET",
+      status: 200,
+      timestamp: "2024-03-28T14:08:00Z",
+      type: "json",
+      size: "12.4 KB",
+    },
+  },
+  {
+    key: "/assets/logo.svg",
+    value: {
+      url: "/assets/logo.svg",
+      method: "GET",
+      status: 200,
+      timestamp: "2024-03-28T14:00:00Z",
+      type: "blob",
+      size: "3.4 KB",
+    },
+  },
+  {
+    key: "/api/v2/notifications",
+    value: {
+      url: "/api/v2/notifications",
+      method: "GET",
+      status: 200,
+      timestamp: "2024-03-28T13:55:00Z",
+      type: "json",
+      size: "2.1 KB",
+    },
+  },
+];
+
+const mockSqliteStore: MockIDBRecord[] = [
+  {
+    key: "_metadata",
+    value: {
+      _id: "_metadata",
+      db: "mydb.db",
+      version: 1,
+      tables: ["users", "notes", "tasks"],
+      created: "2024-01-15T09:00:00Z",
+    },
+  },
+];
+
+export function getMockIDBRecords(dbName: string, storeName: string): MockIDBRecord[] {
+  const map: Record<string, Record<string, MockIDBRecord[]>> = {
+    appDatabase: {
+      users: mockUsersStore,
+      syncQueue: mockSyncQueueStore,
+      settings: mockSettingsStore,
+      offlineCache: mockOfflineCacheStore,
+    },
+    "jeep-sqlite": {
+      "mydb.db": mockSqliteStore,
+    },
+  };
+  return map[dbName]?.[storeName] ?? [];
+}
+
+export interface MockLSOrigin {
+  origin: string;
+  entries: { key: string; value: string }[];
+}
+
+export const mockLocalStorageOrigins: MockLSOrigin[] = [
+  {
+    origin: "https://my-ionic-app.com",
+    entries: [
+      { key: "CapacitorStorage.user_token", value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
+      { key: "CapacitorStorage.refresh_token", value: "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4..." },
+      {
+        key: "CapacitorStorage.user_preferences",
+        value: '{"theme":"dark","lang":"en","notifications":true}',
+      },
+      { key: "CapacitorStorage.last_sync", value: "2024-03-28T14:12:00.000Z" },
+      { key: "CapacitorStorage.onboarding_complete", value: "true" },
+      { key: "_cap_lastUrl", value: "http://localhost/tabs/tasks" },
+      { key: "_cap_lastPath", value: "/tabs/tasks" },
+      { key: "ionic:storage:darkMode", value: "true" },
+    ],
+  },
+  {
+    origin: "http://localhost:8100",
+    entries: [
+      { key: "vite:hot", value: "ws://localhost:5173" },
+      { key: "debug", value: "true" },
+      { key: "ionic:storage:theme", value: "light" },
+    ],
+  },
+  {
+    origin: "https://admin.myapp.com",
+    entries: [
+      { key: "auth_token", value: "Bearer eyJhbGciOiJSUzI1NiIs..." },
+      { key: "sidebar_collapsed", value: "false" },
+      { key: "last_visited", value: "/dashboard/analytics" },
+      { key: "table_page_size", value: "50" },
+      { key: "dark_mode", value: "true" },
+    ],
+  },
+  {
+    origin: "https://cdn.myapp.com",
+    entries: [
+      { key: "asset_version", value: "v2.4.1" },
+      { key: "last_cache_check", value: "2024-03-28T10:00:00Z" },
+    ],
+  },
+];
+
+export const mockLocalStorageEntries = mockLocalStorageOrigins[0].entries;
+
+export interface MockCacheOrigin {
+  origin: string;
+  caches: { cacheName: string; entries: { url: string; size: string; type: string }[] }[];
+}
+
+export const mockCacheAPIOrigins: MockCacheOrigin[] = [
+  {
+    origin: "https://my-ionic-app.com",
+    caches: [
+      {
+        cacheName: "v1-static",
+        entries: [
+          { url: "/index.html", size: "4.2 KB", type: "text/html" },
+          { url: "/main.js", size: "245 KB", type: "application/javascript" },
+          { url: "/vendor.js", size: "1.2 MB", type: "application/javascript" },
+          { url: "/styles.css", size: "34 KB", type: "text/css" },
+        ],
+      },
+      {
+        cacheName: "v1-api",
+        entries: [
+          { url: "/api/v2/config", size: "456 B", type: "application/json" },
+          { url: "/api/v2/users/me", size: "1.2 KB", type: "application/json" },
+        ],
+      },
+    ],
+  },
+  {
+    origin: "http://localhost:8100",
+    caches: [
+      {
+        cacheName: "dev-assets",
+        entries: [
+          { url: "/src/main.ts", size: "1.2 KB", type: "text/javascript" },
+          { url: "/src/App.vue", size: "3.4 KB", type: "text/html" },
+        ],
+      },
+    ],
+  },
+  {
+    origin: "https://cdn.myapp.com",
+    caches: [
+      {
+        cacheName: "static-assets-v3",
+        entries: [
+          { url: "/fonts/inter-var.woff2", size: "98 KB", type: "font/woff2" },
+          { url: "/images/hero.webp", size: "124 KB", type: "image/webp" },
+          { url: "/icons/sprite.svg", size: "12 KB", type: "image/svg+xml" },
+        ],
+      },
+    ],
+  },
+];
+
+export const mockOPFSEntries = [
+  { name: "mydb.sqlite", size: "4.2 MB", type: "database", modified: "2024-03-28 14:12" },
+  { name: "temp-upload.bin", size: "890 KB", type: "binary", modified: "2024-03-28 13:50" },
+  { name: "export-2024-03.json", size: "124 KB", type: "json", modified: "2024-03-27 09:30" },
+  { name: "image-cache/", size: "2.1 MB", type: "directory", modified: "2024-03-26 18:00" },
+];

@@ -4,7 +4,7 @@ import {
   useVueTable,
   getCoreRowModel,
   getSortedRowModel,
-  flexRender,
+  FlexRender,
   createColumnHelper,
   type SortingState,
 } from "@tanstack/vue-table";
@@ -122,7 +122,7 @@ const table = useVueTable({
             @click="header.column.getToggleSortingHandler()?.($event)"
           >
             <span class="flex items-center gap-1">
-              <flexRender :render="header.column.columnDef.header" :props="header.getContext()" />
+              <FlexRender :render="header.column.columnDef.header" :props="header.getContext()" />
               <span v-if="header.column.getIsSorted() === 'asc'" class="text-[10px] text-primary"
                 >↑</span
               >
@@ -146,7 +146,7 @@ const table = useVueTable({
             :key="cell.id"
             class="h-7 overflow-hidden text-ellipsis whitespace-nowrap px-2.5 font-mono text-foreground max-w-[300px]"
           >
-            <flexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />
+            <FlexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />
           </td>
         </tr>
       </tbody>

@@ -1,6 +1,14 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const props = defineProps<{
   storeName: string;
@@ -20,6 +28,8 @@ const emit = defineEmits<{
 }>();
 
 const pageSizeOptions = [50, 100, 500];
+
+const pageSizeLabel = computed(() => `${props.pageSize} / page`);
 </script>
 
 <template>
@@ -43,13 +53,21 @@ const pageSizeOptions = [50, 100, 500];
       </span>
 
       <!-- Page size selector -->
-      <select
-        class="h-6 border border-border bg-transparent px-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
-        :value="props.pageSize"
-        @change="emit('pageSizeChange', Number(($event.target as HTMLSelectElement).value))"
+      <Select
+        :model-value="String(props.pageSize)"
+        @update:model-value="(v: string) => emit('pageSizeChange', Number(v))"
       >
-        <option v-for="s in pageSizeOptions" :key="s" :value="s">{{ s }} / page</option>
-      </select>
+        <SelectTrigger
+          class="h-6 w-auto gap-1 border-border/40 px-1.5 text-[11px] text-muted-foreground"
+        >
+          <SelectValue :default-value="pageSizeLabel" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem v-for="s in pageSizeOptions" :key="s" :value="String(s)">
+            {{ s }} / page
+          </SelectItem>
+        </SelectContent>
+      </Select>
 
       <!-- Pagination -->
       <div class="flex items-center gap-0.5">
