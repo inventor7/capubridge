@@ -95,7 +95,7 @@ function isActive(tabPath: string): boolean {
       v-for="tab in subTabs"
       :key="tab.name"
       @click="router.push(tab.path)"
-      class="flex items-center gap-2 px-3 py-1.5 text-sm transition-colors duration-150 rounded-t-[13px]"
+      class="flex items-center gap-2 px-3 py-1.5 text-sm transition-colors duration-150 rounded-xl"
       :class="
         isActive(tab.path)
           ? 'text-foreground font-medium bg-surface-3 border border-border/30'

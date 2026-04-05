@@ -6,15 +6,17 @@ import { CDPClient } from "utils";
 export const useConnectionStore = defineStore("connection", () => {
   const connections = ref<Map<string, CDPConnection>>(new Map());
   const clientMap = new Map<string, CDPClient>();
+  const selectedTargetId = ref<string | null>(null);
 
   const activeConnection = computed(() => {
-    for (const conn of connections.value.values()) {
-      if (conn.status === "connected") return conn;
-    }
+    if (!selectedTargetId.value) return null;
+    const conn = connections.value.get(selectedTargetId.value);
+    if (conn && conn.status === "connected") return conn;
     return null;
   });
 
   async function connect(target: CDPTarget): Promise<CDPClient> {
+    selectedTargetId.value = target.id;
     const existing = clientMap.get(target.id);
     if (existing && existing.readyState === WebSocket.OPEN) return existing;
 
@@ -76,6 +78,7 @@ export const useConnectionStore = defineStore("connection", () => {
   return {
     connections,
     activeConnection,
+    selectedTargetId,
     connect,
     getClient,
     disconnectTarget,
