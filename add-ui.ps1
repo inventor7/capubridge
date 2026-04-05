@@ -20,7 +20,7 @@ Start-Sleep -Milliseconds 800
 
 Write-Host "Adding shadcn-vue component: $component..." -ForegroundColor Cyan
 Set-Location "$projectRoot\apps\desktop"
-pnpm dlx shadcn-vue@2.4.0 add $component -y
+pnpm dlx shadcn-vue@latest add $component -y
 
 if ($LASTEXITCODE -eq 0) {
   Write-Host ""

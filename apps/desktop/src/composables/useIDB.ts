@@ -9,15 +9,6 @@ export function useIDB() {
   const targetsStore = useTargetsStore();
 
   const targetId = computed(() => targetsStore.selectedTarget?.id ?? "");
-  const targetOrigin = computed(() => {
-    const url = targetsStore.selectedTarget?.url;
-    if (!url) return "";
-    try {
-      return new URL(url).origin;
-    } catch {
-      return url;
-    }
-  });
 
   function getDomain() {
     const client = getClient(targetId.value);
@@ -29,15 +20,18 @@ export function useIDB() {
     return useQuery({
       queryKey: computed(() => ["idb-databases", targetId.value]),
       queryFn: async () => {
+        console.log("[IDB] useDatabases queryFn running, targetId:", targetId.value);
         const domain = getDomain();
-        await domain.enable();
-        return domain.getDatabases(targetOrigin.value);
+        const dbs = await domain.discoverDatabases();
+        console.log("[IDB] discovered databases:", dbs);
+        return dbs;
       },
-      enabled: computed(() => !!targetId.value && !!targetOrigin.value),
+      enabled: computed(() => !!targetId.value),
     });
   }
 
   function useRecords(
+    origin: Ref<string>,
     dbName: Ref<string>,
     storeName: Ref<string>,
     page: Ref<number>,
@@ -47,26 +41,40 @@ export function useIDB() {
       queryKey: computed(() => [
         "idb-records",
         targetId.value,
+        origin.value,
         dbName.value,
         storeName.value,
         page.value,
         pageSize.value,
       ]),
       queryFn: async () => {
-        const domain = getDomain();
-        return domain.getData({
-          securityOrigin: targetOrigin.value,
-          databaseName: dbName.value,
-          objectStoreName: storeName.value,
-          skipCount: page.value * pageSize.value,
-          pageSize: pageSize.value,
+        console.log("[IDB] useRecords queryFn running:", {
+          origin: origin.value,
+          db: dbName.value,
+          store: storeName.value,
         });
+        try {
+          const domain = getDomain();
+          const result = await domain.getData({
+            securityOrigin: origin.value,
+            databaseName: dbName.value,
+            objectStoreName: storeName.value,
+            skipCount: page.value * pageSize.value,
+            pageSize: pageSize.value,
+          });
+          console.log("[IDB] useRecords result:", result);
+          return result;
+        } catch (err) {
+          console.error("[IDB] useRecords error:", err);
+          throw err;
+        }
       },
       enabled: computed(
-        () => !!targetId.value && !!targetOrigin.value && !!dbName.value && !!storeName.value,
+        () => !!targetId.value && !!origin.value && !!dbName.value && !!storeName.value,
       ),
+      retry: false,
     });
   }
 
-  return { targetId, targetOrigin, useDatabases, useRecords };
+  return { targetId, useDatabases, useRecords };
 }

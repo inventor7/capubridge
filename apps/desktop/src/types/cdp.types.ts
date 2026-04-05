@@ -4,6 +4,7 @@ export interface CDPTarget {
   title: string;
   url: string;
   webSocketDebuggerUrl: string;
+  source: "adb" | "chrome";
   deviceSerial?: string;
   faviconUrl?: string;
 }

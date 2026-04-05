@@ -1,10 +1,11 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
 import type { CDPTarget, CDPConnection } from "@/types/cdp.types";
+import { CDPClient } from "utils";
 
 export const useConnectionStore = defineStore("connection", () => {
-  // Map: targetId → CDPConnection
   const connections = ref<Map<string, CDPConnection>>(new Map());
+  const clientMap = new Map<string, CDPClient>();
 
   const activeConnection = computed(() => {
     for (const conn of connections.value.values()) {
@@ -13,12 +14,9 @@ export const useConnectionStore = defineStore("connection", () => {
     return null;
   });
 
-  async function connect(target: CDPTarget): Promise<CDPConnection> {
-    // Close any existing connection to this target
-    const existing = connections.value.get(target.id);
-    if (existing?.ws.readyState === WebSocket.OPEN) {
-      return existing;
-    }
+  async function connect(target: CDPTarget): Promise<CDPClient> {
+    const existing = clientMap.get(target.id);
+    if (existing && existing.readyState === WebSocket.OPEN) return existing;
 
     const conn: CDPConnection = {
       targetId: target.id,
@@ -28,10 +26,10 @@ export const useConnectionStore = defineStore("connection", () => {
 
     connections.value.set(target.id, conn);
 
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       conn.ws.addEventListener("open", () => {
         conn.status = "connected";
-        resolve(conn);
+        resolve();
       });
 
       conn.ws.addEventListener("close", () => {
@@ -43,18 +41,31 @@ export const useConnectionStore = defineStore("connection", () => {
         reject(new Error(`WebSocket error connecting to ${target.url}`));
       });
     });
+
+    const client = new CDPClient(target.webSocketDebuggerUrl);
+    await client.waitForOpen();
+    clientMap.set(target.id, client);
+
+    conn.ws.addEventListener("close", () => {
+      conn.status = "disconnected";
+      clientMap.delete(target.id);
+    });
+
+    return client;
   }
 
-  function disconnect(targetId: string) {
+  function getClient(targetId: string): CDPClient | undefined {
+    return clientMap.get(targetId);
+  }
+
+  function disconnectTarget(targetId: string) {
+    clientMap.get(targetId)?.close();
+    clientMap.delete(targetId);
     const conn = connections.value.get(targetId);
     if (conn) {
       conn.ws.close();
       connections.value.delete(targetId);
     }
-  }
-
-  function getConnection(targetId: string): CDPConnection | undefined {
-    return connections.value.get(targetId);
   }
 
   function setStatus(targetId: string, status: CDPConnection["status"]) {
@@ -66,8 +77,8 @@ export const useConnectionStore = defineStore("connection", () => {
     connections,
     activeConnection,
     connect,
-    disconnect,
-    getConnection,
+    getClient,
+    disconnectTarget,
     setStatus,
   };
 });

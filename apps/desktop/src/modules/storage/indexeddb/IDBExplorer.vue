@@ -1,85 +1,119 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { Database, ChevronRight, ChevronDown, Search } from "lucide-vue-next";
+import { Database, ChevronRight, ChevronDown, Search, RefreshCw } from "lucide-vue-next";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { getMockIDBRecords, mockDatabases, type MockIDBRecord } from "@/data/mock-data";
+import { useIDB } from "@/composables/useIDB";
+import type { IDBDatabaseInfo, IDBRecord } from "utils";
 import IDBTable from "./IDBTable.vue";
 import IDBTableToolbar from "./IDBTableToolbar.vue";
 
 const route = useRoute();
 const router = useRouter();
 
-const expandedDbs = ref<Set<string>>(new Set(["appDatabase"]));
+const expandedDbs = ref<Set<string>>(new Set());
 const filter = ref("");
-
-const dbName = computed(() => decodeURIComponent((route.params["db"] as string) ?? ""));
-const storeName = computed(() => decodeURIComponent((route.params["store"] as string) ?? ""));
 const page = ref(0);
 const pageSize = ref(50);
 
-const allRecords = computed<MockIDBRecord[]>(() => {
-  if (!dbName.value || !storeName.value) return [];
-  return getMockIDBRecords(dbName.value, storeName.value);
-});
+const dbName = computed(() => decodeURIComponent((route.params["db"] as string) ?? ""));
+const storeName = computed(() => decodeURIComponent((route.params["store"] as string) ?? ""));
+const selectedOrigin = ref("");
 
-const filteredRecords = computed(() => {
-  if (!filter.value) return allRecords.value;
+const { useDatabases, useRecords } = useIDB();
+
+const {
+  data: databases,
+  isLoading: isLoadingDbs,
+  isFetching: isFetchingDbs,
+  refetch: refetchDbs,
+} = useDatabases();
+
+const {
+  data: recordsData,
+  isLoading: isLoadingRecords,
+  isFetching: isFetchingRecords,
+  isError,
+  refetch: refetchRecords,
+} = useRecords(selectedOrigin, dbName, storeName, page, pageSize);
+
+const isLoading = computed(() => isLoadingRecords.value || isFetchingRecords.value);
+const hasMore = computed(() => recordsData.value?.hasMore ?? false);
+const recordCount = computed(() => recordsData.value?.records.length ?? 0);
+
+const filteredRecords = computed<IDBRecord[]>(() => {
+  if (!recordsData.value?.records) return [];
+  if (!filter.value) return recordsData.value.records;
   const q = filter.value.toLowerCase();
-  return allRecords.value.filter(
+  return recordsData.value.records.filter(
     (r) =>
       String(r.key).toLowerCase().includes(q) || JSON.stringify(r.value).toLowerCase().includes(q),
   );
 });
-
-const pagedRecords = computed(() => {
-  const start = page.value * pageSize.value;
-  const end = start + pageSize.value;
-  return filteredRecords.value.slice(start, end);
-});
-
-const hasMore = computed(() => (page.value + 1) * pageSize.value < filteredRecords.value.length);
-
-const isLoading = ref(false);
-const isError = ref(false);
 
 function toggleDb(name: string) {
   if (expandedDbs.value.has(name)) expandedDbs.value.delete(name);
   else expandedDbs.value.add(name);
 }
 
-function navigateToStore(dbName: string, storeName: string) {
-  void router.push(
-    `/storage/indexeddb/${encodeURIComponent(dbName)}/${encodeURIComponent(storeName)}`,
-  );
+function navigateToStore(db: string, store: string) {
+  const dbInfo = databases.value?.find((d) => d.name === db);
+  if (dbInfo) {
+    selectedOrigin.value = dbInfo.origin;
+  }
+  void router.push(`/storage/indexeddb/${encodeURIComponent(db)}/${encodeURIComponent(store)}`);
 }
 
 function isStoreActive(db: string, store: string) {
   return dbName.value === db && storeName.value === store;
 }
 
+function getDbKey(db: IDBDatabaseInfo) {
+  return `${db.origin}::${db.name}`;
+}
+
 function prevPage() {
   if (page.value > 0) page.value--;
 }
+
 function nextPage() {
   if (hasMore.value) page.value++;
 }
+
 function handlePageSizeChange(size: number) {
   pageSize.value = size;
   page.value = 0;
 }
 
 function refetch() {
-  isLoading.value = true;
-  setTimeout(() => {
-    isLoading.value = false;
-  }, 300);
+  void refetchDbs();
+  void refetchRecords();
 }
 
-const tableRecords = computed(() =>
-  pagedRecords.value.map((r) => ({ key: r.key, value: r.value })),
+watch([dbName, storeName], () => {
+  page.value = 0;
+  filter.value = "";
+});
+
+watch(
+  databases,
+  (dbs) => {
+    if (dbs && dbs.length > 0 && expandedDbs.value.size === 0) {
+      expandedDbs.value.add(dbs[0].name);
+      selectedOrigin.value = dbs[0].origin;
+    }
+    for (const db of dbs ?? []) {
+      for (const store of db.objectStoreNames) {
+        if (isStoreActive(db.name, store)) {
+          expandedDbs.value.add(db.name);
+          break;
+        }
+      }
+    }
+  },
+  { immediate: true },
 );
 </script>
 
@@ -99,10 +133,22 @@ const tableRecords = computed(() =>
             />
           </div>
           <ScrollArea class="flex-1">
-            <ul class="py-1">
-              <li v-for="db in mockDatabases" :key="db.name">
+            <div v-if="isLoadingDbs || isFetchingDbs" class="flex items-center justify-center py-8">
+              <RefreshCw :size="14" class="animate-spin text-muted-foreground/40" />
+            </div>
+
+            <div
+              v-else-if="!databases?.length"
+              class="flex flex-col items-center justify-center py-8 px-3 text-center"
+            >
+              <Database :size="16" class="text-muted-foreground/30 mb-2" />
+              <p class="text-[11px] text-muted-foreground/40">No IndexedDB databases found</p>
+            </div>
+
+            <ul v-else class="py-1">
+              <li v-for="db in databases" :key="getDbKey(db)">
                 <button
-                  class="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground/60 transition-colors hover:bg-surface-3/50 hover:text-muted-foreground"
+                  class="flex w-full items-center gap-2 px-3 py-2 text-xs text-foreground/70 transition-colors hover:bg-surface-3/50"
                   @click="toggleDb(db.name)"
                 >
                   <component
@@ -112,31 +158,22 @@ const tableRecords = computed(() =>
                   />
                   <Database :size="13" class="shrink-0 opacity-40" />
                   <span class="flex-1 truncate text-left">{{ db.name }}</span>
-                  <span class="text-[10px] font-mono text-muted-foreground/30 shrink-0"
+                  <span class="text-[10px] font-mono text-muted-foreground/40 shrink-0"
                     >v{{ db.version }}</span
                   >
                 </button>
                 <ul v-if="expandedDbs.has(db.name)">
-                  <li v-for="store in db.stores" :key="store.name">
+                  <li v-for="storeItem in db.objectStoreNames" :key="storeItem">
                     <button
                       class="flex w-full items-center gap-1.5 py-1.5 pl-[26px] pr-3 text-xs transition-colors"
                       :class="
-                        isStoreActive(db.name, store.name)
+                        isStoreActive(db.name, storeItem)
                           ? 'text-foreground font-medium bg-surface-3 border-l-2 border-foreground pl-[24px]'
-                          : 'text-[#676767] hover:bg-surface-3/50 hover:text-[#888888]'
+                          : 'text-foreground/60 hover:bg-surface-3/50 hover:text-foreground/80'
                       "
-                      @click="navigateToStore(db.name, store.name)"
+                      @click="navigateToStore(db.name, storeItem)"
                     >
-                      <span class="truncate text-left">{{ store.name }}</span>
-                      <span
-                        class="ml-auto text-[10px] font-mono shrink-0"
-                        :class="
-                          isStoreActive(db.name, store.name)
-                            ? 'text-muted-foreground/50'
-                            : 'text-[#444444]'
-                        "
-                        >{{ store.recordCount }}</span
-                      >
+                      <span class="truncate text-left">{{ storeItem }}</span>
                     </button>
                   </li>
                 </ul>
@@ -155,7 +192,7 @@ const tableRecords = computed(() =>
         </div>
 
         <template v-else>
-          <div class="flex flex-col h-full">
+          <div class="flex flex-col h-full overflow-hidden">
             <IDBTableToolbar
               :store-name="storeName"
               :db-name="dbName"
@@ -163,7 +200,7 @@ const tableRecords = computed(() =>
               :page="page"
               :page-size="pageSize"
               :has-more="hasMore"
-              :record-count="pagedRecords.length"
+              :record-count="recordCount"
               @refresh="refetch"
               @prev="prevPage"
               @next="nextPage"
@@ -174,10 +211,10 @@ const tableRecords = computed(() =>
               v-if="isError"
               class="shrink-0 border-b border-border/30 bg-error/[0.06] px-4 py-2 text-xs text-error"
             >
-              Failed to load records
+              Failed to load records. Make sure the target supports IndexedDB inspection.
             </div>
 
-            <IDBTable :records="tableRecords" :is-loading="isLoading" />
+            <IDBTable :records="filteredRecords" :is-loading="isLoading" />
           </div>
         </template>
       </ResizablePanel>

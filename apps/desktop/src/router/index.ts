@@ -181,6 +181,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import("@/modules/settings/SettingsAdb.vue"),
       },
       {
+        path: "chrome",
+        name: "settings-chrome",
+        component: () => import("@/modules/settings/SettingsChrome.vue"),
+      },
+      {
         path: "theme",
         name: "settings-theme",
         component: () => import("@/modules/settings/SettingsTheme.vue"),

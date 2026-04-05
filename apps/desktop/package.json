@@ -27,7 +27,8 @@
     "tailwindcss": "catalog:",
     "utils": "workspace:*",
     "vue": "catalog:",
-    "vue-router": "catalog:"
+    "vue-router": "catalog:",
+    "vue-sonner": "catalog:"
   },
   "devDependencies": {
     "@unocss/preset-wind": "catalog:",

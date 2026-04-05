@@ -1,63 +1,76 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { Search, Archive, FileText, Globe, ChevronRight, ChevronDown } from "lucide-vue-next";
+import {
+  Search,
+  Archive,
+  FileText,
+  ChevronRight,
+  ChevronDown,
+  RefreshCw,
+  AlertCircle,
+} from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { mockCacheAPIOrigins, type MockCacheOrigin } from "@/data/mock-data";
+import { useCacheAPI } from "@/composables/useStorage";
+import type { CacheEntry } from "utils";
 
-const route = useRoute();
-const router = useRouter();
 const filter = ref("");
 const selectedUrl = ref<string | null>(null);
-const expandedCaches = ref<Set<string>>(new Set(["v1-static"]));
+const expandedCaches = ref<Set<string>>(new Set());
 
-const selectedOrigin = computed<MockCacheOrigin | null>(() => {
-  const origin = route.query.origin as string | undefined;
-  if (!origin) return mockCacheAPIOrigins[0] ?? null;
-  return mockCacheAPIOrigins.find((o) => o.origin === origin) ?? mockCacheAPIOrigins[0] ?? null;
-});
+const { useCacheNames, useCacheEntries } = useCacheAPI();
 
-const selectedEntry = computed(() => {
-  if (!selectedUrl.value || !selectedOrigin.value) return null;
-  for (const cache of selectedOrigin.value.caches) {
-    const found = cache.entries.find((e) => e.url === selectedUrl.value);
-    if (found) return { ...found, cacheName: cache.cacheName };
-  }
-  return null;
-});
+const { data: cacheNames, isLoading: isLoadingNames, refetch: refetchNames } = useCacheNames();
 
-const allEntries = computed(() => {
-  if (!selectedOrigin.value) return [];
-  return selectedOrigin.value.caches.flatMap((c) =>
-    c.entries.map((e) => ({ ...e, cacheName: c.cacheName })),
-  );
+const selectedCacheName = ref("");
+
+const {
+  data: cacheEntries,
+  isLoading: isLoadingEntries,
+  refetch: refetchEntries,
+} = useCacheEntries(selectedCacheName);
+
+const allEntries = computed<CacheEntry[]>(() => {
+  if (!cacheEntries.value) return [];
+  return cacheEntries.value;
 });
 
 const filtered = computed(() => {
   if (!filter.value) return allEntries.value;
   const q = filter.value.toLowerCase();
   return allEntries.value.filter(
-    (e) => e.url.toLowerCase().includes(q) || e.type.toLowerCase().includes(q),
+    (e) => e.url.toLowerCase().includes(q) || e.method.toLowerCase().includes(q),
   );
 });
 
-function selectOrigin(origin: string) {
-  router.push({ query: { origin } });
+const selectedEntry = computed(() => {
+  if (!selectedUrl.value) return null;
+  return allEntries.value.find((e) => e.url === selectedUrl.value) ?? null;
+});
+
+function selectCache(name: string) {
+  selectedCacheName.value = name;
+  if (!expandedCaches.value.has(name)) {
+    expandedCaches.value.add(name);
+  }
 }
 
 function toggleCache(name: string) {
   if (expandedCaches.value.has(name)) expandedCaches.value.delete(name);
   else expandedCaches.value.add(name);
 }
+
+function refetch() {
+  void refetchNames();
+  if (selectedCacheName.value) void refetchEntries();
+}
 </script>
 
 <template>
   <div class="flex h-full flex-col overflow-hidden">
     <ResizablePanelGroup direction="horizontal" class="flex-1">
-      <!-- Sidebar: origins + cache tree -->
       <ResizablePanel :default-size="15" :min-size="10" :max-size="30">
         <div class="flex h-full flex-col border-r border-border/30">
           <div
@@ -71,120 +84,117 @@ function toggleCache(name: string) {
             />
           </div>
           <ScrollArea class="flex-1">
-            <div class="py-1">
-              <template v-if="selectedOrigin">
-                <Button
-                  v-for="origin in mockCacheAPIOrigins"
-                  :key="origin.origin"
-                  variant="ghost"
-                  size="sm"
-                  class="w-full justify-start gap-2 px-3 py-2 h-auto text-xs"
-                  :class="
-                    selectedOrigin?.origin === origin.origin
-                      ? 'text-foreground bg-surface-3 font-medium border-l-2 border-foreground pl-[10px]'
-                      : 'text-muted-foreground/50 border-l-2 border-transparent pl-[10px] hover:bg-surface-3/50 hover:text-muted-foreground'
-                  "
-                  @click="selectOrigin(origin.origin)"
-                >
-                  <Globe :size="13" class="shrink-0 opacity-40" />
-                  <span class="truncate text-left font-mono text-xs">{{ origin.origin }}</span>
-                </Button>
+            <div v-if="isLoadingNames" class="flex items-center justify-center py-8">
+              <RefreshCw :size="14" class="animate-spin text-muted-foreground/40" />
+            </div>
 
-                <!-- Cache tree for selected origin -->
-                <div class="mt-2 pt-2 border-t border-border/30">
-                  <ul>
-                    <li v-for="cache in selectedOrigin.caches" :key="cache.cacheName">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        class="w-full justify-start gap-2 px-3 py-2 h-auto text-xs text-muted-foreground/60 hover:bg-surface-3/50 hover:text-muted-foreground"
-                        @click="toggleCache(cache.cacheName)"
+            <div
+              v-else-if="!cacheNames?.length"
+              class="flex flex-col items-center justify-center py-8 px-3 text-center"
+            >
+              <AlertCircle :size="16" class="text-muted-foreground/30 mb-2" />
+              <p class="text-[11px] text-muted-foreground/40">No Cache API caches found</p>
+            </div>
+
+            <div v-else class="py-1">
+              <ul>
+                <li v-for="cacheName in cacheNames" :key="cacheName">
+                  <button
+                    class="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground/60 transition-colors hover:bg-surface-3/50 hover:text-muted-foreground"
+                    @click="toggleCache(cacheName)"
+                  >
+                    <component
+                      :is="expandedCaches.has(cacheName) ? ChevronDown : ChevronRight"
+                      :size="12"
+                      class="shrink-0 opacity-50"
+                    />
+                    <Archive :size="13" class="shrink-0 opacity-40" />
+                    <span class="flex-1 truncate text-left">{{ cacheName }}</span>
+                  </button>
+                  <ul v-if="expandedCaches.has(cacheName)">
+                    <li>
+                      <button
+                        class="flex w-full items-center py-1.5 pl-[26px] pr-3 text-xs transition-colors"
+                        :class="
+                          selectedCacheName === cacheName
+                            ? 'text-foreground font-medium bg-surface-3 border-l-2 border-foreground pl-[24px]'
+                            : 'text-[#676767] hover:bg-surface-3/50 hover:text-[#888888]'
+                        "
+                        @click="selectCache(cacheName)"
                       >
-                        <component
-                          :is="expandedCaches.has(cache.cacheName) ? ChevronDown : ChevronRight"
-                          :size="12"
-                          class="shrink-0 opacity-50"
-                        />
-                        <Archive :size="13" class="shrink-0 opacity-40" />
-                        <span class="flex-1 truncate text-left">{{ cache.cacheName }}</span>
-                        <span class="text-[10px] font-mono text-muted-foreground/30 shrink-0">{{
-                          cache.entries.length
-                        }}</span>
-                      </Button>
-                      <ul v-if="expandedCaches.has(cache.cacheName)">
-                        <li v-for="entry in cache.entries" :key="entry.url">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            class="w-full justify-start py-1.5 pl-[26px] pr-3 h-auto"
-                            :class="
-                              selectedUrl === entry.url
-                                ? 'text-foreground font-medium bg-surface-3 border-l-2 border-foreground pl-[24px]'
-                                : 'text-muted-foreground/50 hover:bg-surface-3/50 hover:text-muted-foreground'
-                            "
-                            @click="selectedUrl = entry.url"
-                          >
-                            <span class="truncate text-left font-mono text-xs">{{
-                              entry.url
-                            }}</span>
-                          </Button>
-                        </li>
-                      </ul>
+                        <span class="truncate text-left">View entries</span>
+                      </button>
                     </li>
                   </ul>
-                </div>
-              </template>
+                </li>
+              </ul>
             </div>
           </ScrollArea>
         </div>
       </ResizablePanel>
       <ResizableHandle with-handle />
 
-      <!-- Table -->
       <ResizablePanel :default-size="80">
-        <div class="flex-1 overflow-auto h-full">
-          <table class="w-full text-xs">
-            <thead class="sticky top-0 z-10">
-              <tr
-                class="bg-surface-2 text-left text-muted-foreground/50 uppercase tracking-wider border-b border-border/30"
+        <div class="flex flex-col h-full">
+          <div
+            v-if="!selectedCacheName"
+            class="flex flex-1 items-center justify-center text-sm text-muted-foreground/30"
+          >
+            Select a cache from the sidebar
+          </div>
+
+          <template v-else>
+            <div class="flex items-center gap-2 px-4 py-2 border-b border-border/30">
+              <Archive :size="14" class="text-muted-foreground/40" />
+              <span class="text-xs font-mono text-foreground/70">{{ selectedCacheName }}</span>
+              <span class="text-xs text-muted-foreground/40"
+                >({{ allEntries.length }} entries)</span
               >
-                <th class="px-4 py-2.5 font-medium">URL</th>
-                <th class="px-4 py-2.5 font-medium w-28">Cache</th>
-                <th class="px-4 py-2.5 font-medium w-24">Type</th>
-                <th class="px-4 py-2.5 font-medium w-24">Size</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="entry in filtered"
-                :key="entry.url"
-                @click="selectedUrl = selectedUrl === entry.url ? null : entry.url"
-                class="border-b border-border/20 cursor-pointer transition-colors"
-                :class="selectedUrl === entry.url ? 'bg-surface-3' : 'data-row'"
-              >
-                <td
-                  class="px-4 py-2.5 font-mono text-sm text-secondary-foreground truncate max-w-[300px]"
-                >
-                  <div class="flex items-center gap-2">
-                    <FileText class="w-3.5 h-3.5 text-muted-foreground/30 shrink-0" />
-                    {{ entry.url }}
-                  </div>
-                </td>
-                <td class="px-4 py-2.5">
-                  <span
-                    class="text-xs font-mono px-2 py-0.5 rounded bg-surface-3 border border-border/30 text-muted-foreground/60"
-                    >{{ entry.cacheName }}</span
+              <div class="flex-1" />
+              <Button variant="ghost" size="sm" class="h-6 text-xs" @click="refetch()">
+                <RefreshCw :size="12" class="mr-1" />
+                Refresh
+              </Button>
+            </div>
+
+            <div class="flex-1 overflow-auto">
+              <div v-if="isLoadingEntries" class="flex items-center justify-center py-8">
+                <RefreshCw :size="14" class="animate-spin text-muted-foreground/40" />
+              </div>
+
+              <table v-else class="w-full text-xs">
+                <thead class="sticky top-0 z-10">
+                  <tr
+                    class="bg-surface-2 text-left text-muted-foreground/50 uppercase tracking-wider border-b border-border/30"
                   >
-                </td>
-                <td class="px-4 py-2.5 text-muted-foreground/60 font-mono">
-                  {{ entry.type }}
-                </td>
-                <td class="px-4 py-2.5 text-muted-foreground/60 font-mono">
-                  {{ entry.size }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                    <th class="px-4 py-2.5 font-medium">URL</th>
+                    <th class="px-4 py-2.5 font-medium w-24">Method</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="entry in filtered"
+                    :key="entry.url"
+                    @click="selectedUrl = selectedUrl === entry.url ? null : entry.url"
+                    class="border-b border-border/20 cursor-pointer transition-colors"
+                    :class="selectedUrl === entry.url ? 'bg-surface-3' : 'data-row'"
+                  >
+                    <td
+                      class="px-4 py-2.5 font-mono text-sm text-secondary-foreground truncate max-w-[500px]"
+                    >
+                      <div class="flex items-center gap-2">
+                        <FileText class="w-3.5 h-3.5 text-muted-foreground/30 shrink-0" />
+                        {{ entry.url }}
+                      </div>
+                    </td>
+                    <td class="px-4 py-2.5 text-muted-foreground/60 font-mono">
+                      {{ entry.method }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>

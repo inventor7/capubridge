@@ -108,7 +108,9 @@ function selectDevice(id: string) {
         >
           <!-- LEFT SIDEBAR -->
           <div class="w-[260px] border-r border-border/30 flex flex-col shrink-0 bg-surface-0">
-            <div class="h-12 flex items-center gap-3 px-4 border-b border-border/30 shrink-0 bg-surface-0">
+            <div
+              class="h-12 flex items-center gap-3 px-4 border-b border-border/30 shrink-0 bg-surface-0"
+            >
               <MonitorSmartphone class="w-4 h-4 text-muted-foreground/70" />
               <span class="text-sm font-semibold text-foreground">Devices</span>
               <span class="ml-auto text-xs font-mono text-muted-foreground/60">

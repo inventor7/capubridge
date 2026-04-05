@@ -75,6 +75,9 @@ catalogs:
     vue-router:
       specifier: ^5.0.4
       version: 5.0.4
+    vue-sonner:
+      specifier: 2.0.9
+      version: 2.0.9
 
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@latest
@@ -144,6 +147,9 @@ importers:
       vue-router:
         specifier: 'catalog:'
         version: 5.0.4(@vue/compiler-sfc@3.5.31)(pinia@3.0.4(typescript@5.9.3)(vue@3.5.31(typescript@5.9.3)))(vue@3.5.31(typescript@5.9.3))
+      vue-sonner:
+        specifier: 'catalog:'
+        version: 2.0.9
     devDependencies:
       '@unocss/preset-wind':
         specifier: 'catalog:'
@@ -1918,6 +1924,20 @@ packages:
       pinia:
         optional: true
 
+  vue-sonner@2.0.9:
+    resolution: {integrity: sha512-i6BokNlNDL93fpzNxN/LZSn6D6MzlO+i3qXt6iVZne3x1k7R46d5HlFB4P8tYydhgqOrRbIZEsnRd3kG7qGXyw==}
+    peerDependencies:
+      '@nuxt/kit': ^4.0.3
+      '@nuxt/schema': ^4.0.3
+      nuxt: ^4.0.3
+    peerDependenciesMeta:
+      '@nuxt/kit':
+        optional: true
+      '@nuxt/schema':
+        optional: true
+      nuxt:
+        optional: true
+
   vue@3.5.31:
     resolution: {integrity: sha512-iV/sU9SzOlmA/0tygSmjkEN6Jbs3nPoIPFhCMLD2STrjgOU8DX7ZtzMhg4ahVwf5Rp9KoFzcXeB1ZrVbLBp5/Q==}
     peerDependencies:
@@ -3610,6 +3630,8 @@ snapshots:
     optionalDependencies:
       '@vue/compiler-sfc': 3.5.31
       pinia: 3.0.4(typescript@5.9.3)(vue@3.5.31(typescript@5.9.3))
+
+  vue-sonner@2.0.9: {}
 
   vue@3.5.31(typescript@5.9.3):
     dependencies:

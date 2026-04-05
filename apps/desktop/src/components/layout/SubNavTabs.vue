@@ -54,6 +54,7 @@ const iconMap: Record<string, typeof Smartphone> = {
   "capacitor-deeplinks": Link,
   "settings-general": Settings,
   "settings-adb": Wrench,
+  "settings-chrome": Globe,
   "settings-theme": Palette,
   "settings-shortcuts": Keyboard,
 };
@@ -89,12 +90,12 @@ function isActive(tabPath: string): boolean {
 </script>
 
 <template>
-  <div class="h-11 border-b border-border/30 bg-surface-0 flex items-center gap-1 px-3 shrink-0">
+  <div class="h-11 border-b border-border/30 bg-surface-0 flex items-center gap-1 px-1.5 shrink-0">
     <button
       v-for="tab in subTabs"
       :key="tab.name"
       @click="router.push(tab.path)"
-      class="flex items-center gap-2 px-3 py-1.5 text-sm transition-colors duration-150 rounded-full"
+      class="flex items-center gap-2 px-3 py-1.5 text-sm transition-colors duration-150 rounded-t-[13px]"
       :class="
         isActive(tab.path)
           ? 'text-foreground font-medium bg-surface-3 border border-border/30'

@@ -21,39 +21,56 @@ const columnHelper = createColumnHelper<IDBRecord>();
 const columns = computed(() => {
   if (props.records.length === 0) return [];
 
-  const firstValue = props.records[0]!.value;
-  const valueKeys =
-    firstValue !== null && typeof firstValue === "object"
-      ? Object.keys(firstValue as Record<string, unknown>).slice(0, 20)
-      : [];
+  const firstRecord = props.records[0]!;
+  const firstValue = firstRecord.value;
+  const isKeyValueStore =
+    firstValue === null ||
+    firstValue === undefined ||
+    typeof firstValue !== "object" ||
+    Array.isArray(firstValue);
+
+  if (isKeyValueStore) {
+    return [
+      columnHelper.accessor("key", {
+        header: "Key",
+        size: 250,
+        cell: (info) => {
+          const v = info.getValue();
+          if (typeof v === "object") return JSON.stringify(v);
+          return String(v);
+        },
+      }),
+      columnHelper.accessor("value", {
+        header: "Value",
+        cell: (info) => {
+          const v = info.getValue();
+          if (v === null || v === undefined) return "";
+          if (typeof v === "object") return JSON.stringify(v);
+          return String(v);
+        },
+      }),
+    ];
+  }
+
+  const valueKeys = Object.keys(firstValue as Record<string, unknown>).slice(0, 20);
 
   const cols = [
     columnHelper.accessor("key", {
       header: "Key",
       size: 120,
-      cell: (info) => String(info.getValue()),
+      cell: (info) => {
+        const v = info.getValue();
+        if (typeof v === "object") return JSON.stringify(v);
+        return String(v);
+      },
     }),
   ];
 
-  if (valueKeys.length > 0) {
-    for (const key of valueKeys) {
-      cols.push(
-        columnHelper.accessor((row) => (row.value as Record<string, unknown>)?.[key], {
-          id: key,
-          header: key,
-          cell: (info) => {
-            const v = info.getValue();
-            if (v === null || v === undefined) return "";
-            if (typeof v === "object") return JSON.stringify(v);
-            return String(v);
-          },
-        }),
-      );
-    }
-  } else {
+  for (const key of valueKeys) {
     cols.push(
-      columnHelper.accessor("value", {
-        header: "Value",
+      columnHelper.accessor((row) => (row.value as Record<string, unknown>)?.[key], {
+        id: key,
+        header: key,
         cell: (info) => {
           const v = info.getValue();
           if (v === null || v === undefined) return "";
@@ -89,7 +106,6 @@ const table = useVueTable({
 
 <template>
   <div class="relative flex-1 overflow-auto">
-    <!-- Loading shimmer -->
     <div v-if="isLoading && records.length === 0" class="flex flex-col gap-px p-4">
       <div
         v-for="i in 10"
@@ -99,7 +115,6 @@ const table = useVueTable({
       />
     </div>
 
-    <!-- Empty -->
     <div
       v-else-if="!isLoading && records.length === 0"
       class="flex h-40 items-center justify-center text-sm text-muted-foreground/30"
@@ -107,7 +122,6 @@ const table = useVueTable({
       No records in this store
     </div>
 
-    <!-- Table -->
     <table v-else class="w-full border-collapse text-sm" style="table-layout: fixed">
       <thead>
         <tr>

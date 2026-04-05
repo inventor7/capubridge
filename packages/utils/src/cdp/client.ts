@@ -28,14 +28,18 @@ export class CDPClient {
     });
   }
 
-  send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
+  send<T = unknown>(
+    method: string,
+    params?: Record<string, unknown>,
+    sessionId?: string,
+  ): Promise<T> {
     const id = this.commandId++;
     return new Promise<T>((resolve, reject) => {
       this.pendingCommands.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
       });
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.ws.send(JSON.stringify({ id, method, params, sessionId }));
     });
   }
 

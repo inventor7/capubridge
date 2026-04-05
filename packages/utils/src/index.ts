@@ -10,3 +10,5 @@ export type {
   GetDataParams,
   GetDataResult,
 } from "./cdp/domains/indexeddb.js";
+export { LocalStorageDomain, CacheAPIDomain, OPFSDomain } from "./cdp/domains/storage.js";
+export type { LSOrigin, CacheName, CacheEntry, OPFSEntry } from "./cdp/domains/storage.js";
