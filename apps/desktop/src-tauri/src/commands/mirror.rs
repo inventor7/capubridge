@@ -492,15 +492,35 @@ log_level=info",
         bitrate = bitrate,
     );
 
-    let adb = which::which("adb").map_err(|_| {
-        "adb binary not found in PATH. Install Android SDK Platform Tools.".to_string()
-    })?;
-    let _server_child = tokio::process::Command::new(&adb)
-        .args(["-s", serial, "shell", &server_cmd])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to start scrcpy server process: {e}"))?;
+    let serial_for_log = serial.to_string();
+    let mut server_device = device;
+    std::thread::spawn(move || {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let result = server_device.shell_command(
+            &server_cmd,
+            Some(&mut stdout),
+            Some(&mut stderr),
+        );
+        if let Err(err) = result {
+            log::warn!(
+                "[adb_mirror_scrcpy_start] scrcpy server shell ended with error for {}: {}",
+                serial_for_log,
+                err
+            );
+            return;
+        }
+        if !stderr.is_empty() {
+            let msg = String::from_utf8_lossy(&stderr);
+            if !msg.trim().is_empty() {
+                log::info!(
+                    "[adb_mirror_scrcpy_start] scrcpy server stderr for {}: {}",
+                    serial_for_log,
+                    msg.trim()
+                );
+            }
+        }
+    });
 
     let (mut video_socket, _) = tokio::time::timeout(Duration::from_secs(12), listener.accept())
         .await
@@ -912,23 +932,23 @@ pub async fn adb_mirror_stop_recording(serial: String, save_path: String) -> Res
     // Wait for device to finalize the file
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // Pull the file using the adb binary
-    let adb = which::which("adb").map_err(|_| {
-        "adb binary not found in PATH. Install Android SDK Platform Tools.".to_string()
-    })?;
-
-    let pull = tokio::process::Command::new(&adb)
-        .args(["-s", &serial, "pull", "/sdcard/capubridge_rec.mp4", &save_path])
-        .output()
-        .await
-        .map_err(|e| format!("adb pull failed: {e}"))?;
-
-    if !pull.status.success() {
-        return Err(format!(
-            "adb pull error: {}",
-            String::from_utf8_lossy(&pull.stderr)
-        ));
-    }
+    // Pull file through adb server connection to avoid spawning adb.exe.
+    let serial_for_pull = serial.clone();
+    let save_path_for_pull = save_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut device = get_device(&serial_for_pull)?;
+        let mut out_file = std::fs::File::create(&save_path_for_pull)
+            .map_err(|e| format!("Failed to create output file {save_path_for_pull}: {e}"))?;
+        device
+            .pull(&"/sdcard/capubridge_rec.mp4", &mut out_file)
+            .map_err(|e| format!("adb pull error: {e}"))?;
+        out_file
+            .flush()
+            .map_err(|e| format!("Failed to flush recording file: {e}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Failed to pull recording file: {e}"))??;
 
     // Remove the file from device
     let s2 = serial.clone();

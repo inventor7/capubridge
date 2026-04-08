@@ -10,19 +10,19 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::LazyLock;
 
 fn create_adb_server() -> ADBServer {
-    #[cfg(debug_assertions)]
+    #[cfg(target_os = "windows")]
     {
-        // adb_client currently runs `adb start-server` for each local connect() call.
-        // In Windows dev sessions this can trigger repeated RunDLL popups from
-        // third-party DLL injection. We disable auto-start in debug and rely on an
-        // already running adb server at 127.0.0.1:5037.
+        // adb_client runs `adb start-server` on local connect().
+        // On some Windows setups this triggers repeated RunDLL popups due to
+        // third-party DLL injection into spawned adb.exe processes.
+        // Force manual adb server startup to avoid popups.
         return ADBServer::new_from_path(
             SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5037),
             Some("__capubridge_disable_adb_autostart__".to_string()),
         );
     }
 
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(target_os = "windows"))]
     {
         ADBServer::default()
     }
@@ -30,14 +30,14 @@ fn create_adb_server() -> ADBServer {
 
 pub(crate) fn map_adb_server_err(err: impl std::fmt::Display) -> String {
     let msg = err.to_string();
-    #[cfg(debug_assertions)]
+    #[cfg(target_os = "windows")]
     {
         if msg.contains("Connection refused")
             || msg.contains("NotConnected")
             || msg.contains("failed to lookup address information")
         {
             return format!(
-                "{msg}. In dev mode, adb auto-start is disabled to avoid RunDLL popups. Start adb once manually with: adb start-server"
+                "{msg}. adb auto-start is disabled on Windows to avoid RunDLL popups. Start adb once manually with: adb start-server"
             );
         }
     }

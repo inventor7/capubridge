@@ -22,6 +22,7 @@ use commands::adb::{
     adb_list_devices, adb_list_packages, adb_list_webview_sockets, adb_pair_device, adb_reboot,
     adb_restart_server, adb_root, adb_shell_command, adb_tcpip,
 };
+use commands::files::{adb_delete_file, adb_list_dir, adb_pull_file};
 use commands::cdp_proxy::{cdp_start_proxy, cdp_stop_proxy};
 use commands::chrome::{chrome_fetch_targets, chrome_find, chrome_is_running, chrome_kill_all, chrome_launch, chrome_verify_port};
 use commands::mirror::{
@@ -89,6 +90,9 @@ pub fn run() {
             adb_mirror_stop_recording,
             adb_perf_start,
             adb_perf_stop,
+            adb_list_dir,
+            adb_pull_file,
+            adb_delete_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

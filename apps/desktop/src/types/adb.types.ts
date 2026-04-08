@@ -43,11 +43,10 @@ export interface LogcatEntry {
 
 export interface FileEntry {
   name: string;
-  path: string;
-  isDirectory: boolean;
   size: number;
-  permissions: string;
-  modifiedAt: string;
+  modified: string;    // "YYYY-MM-DD HH:MM" or "Mon DD HH:MM"
+  entryType: "file" | "dir" | "symlink" | "other";
+  permissions: string; // 9-char unix perm string e.g. "rwxr-xr-x"
 }
 
 export interface DeviceInfo {
