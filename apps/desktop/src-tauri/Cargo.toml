@@ -36,3 +36,5 @@ http = "1"
 futures-util = "0.3"
 base64 = "0.22"
 prost = "0.13"
+rusqlite = { version = "0.34", features = ["bundled"] }
+tempfile = "3"

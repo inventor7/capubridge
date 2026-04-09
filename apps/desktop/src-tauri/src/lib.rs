@@ -36,6 +36,10 @@ use commands::mirror::{
 };
 use commands::perf::{adb_perf_start, adb_perf_stop};
 use commands::port_forward::{adb_fetch_json_targets, adb_forward_cdp, adb_remove_forward};
+use commands::sqlite::{
+    sqlite_close_database, sqlite_execute_query, sqlite_list_databases, sqlite_open_database,
+    sqlite_refresh_database, sqlite_table_columns, sqlite_table_indexes, sqlite_table_rows,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -49,6 +53,7 @@ pub fn run() {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
+                        .level_for("adb_client", log::LevelFilter::Off)
                         .build(),
                 )?;
             }
@@ -103,6 +108,14 @@ pub fn run() {
             adb_pull_file,
             adb_open_file,
             adb_delete_file,
+            sqlite_list_databases,
+            sqlite_open_database,
+            sqlite_refresh_database,
+            sqlite_close_database,
+            sqlite_table_columns,
+            sqlite_table_indexes,
+            sqlite_table_rows,
+            sqlite_execute_query,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

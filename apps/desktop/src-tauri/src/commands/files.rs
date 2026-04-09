@@ -114,7 +114,7 @@ fn parse_ls_line(line: &str) -> Option<FileEntry> {
     })
 }
 
-fn shell_escape(value: &str) -> String {
+pub fn shell_escape(value: &str) -> String {
     value.replace('\'', "'\\''")
 }
 
@@ -223,6 +223,36 @@ fn read_file_bytes(
 
     if b64.is_empty() {
         return Err("File not found or is a directory".to_string());
+    }
+
+    general_purpose::STANDARD
+        .decode(&b64)
+        .map_err(|e| format!("Decode failed: {e}"))
+}
+
+/// Read file bytes from a private app directory using `run-as`.
+pub fn read_file_bytes_with_runas(
+    device: &mut adb_client::server_device::ADBServerDevice,
+    path: &str,
+    package: &str,
+) -> Result<Vec<u8>, String> {
+    let escaped = shell_escape(path);
+    let pkg_escaped = shell_escape(package);
+    let command = format!(
+        "run-as '{}' cat '{}' 2>/dev/null | base64",
+        pkg_escaped, escaped
+    );
+    let mut out = Vec::new();
+    let _ = device.shell_command(&command, Some(&mut out), None::<&mut dyn Write>);
+
+    let b64: String = out
+        .iter()
+        .filter(|&&b| !matches!(b, b'\n' | b'\r' | b' '))
+        .map(|&b| b as char)
+        .collect();
+
+    if b64.is_empty() {
+        return Err("File not found or not accessible".to_string());
     }
 
     general_purpose::STANDARD

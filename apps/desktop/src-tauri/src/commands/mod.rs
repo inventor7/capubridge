@@ -5,3 +5,4 @@ pub mod files;
 pub mod mirror;
 pub mod perf;
 pub mod port_forward;
+pub mod sqlite;
