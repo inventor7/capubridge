@@ -29,6 +29,9 @@ export type {
 // invoke('adb_push_file', { serial: string, hostPath: string, devicePath: string }): Promise<void>
 // invoke('adb_forward_cdp', { serial: string, localPort: number }): Promise<void>
 // invoke('adb_remove_forward', { serial: string, localPort: number }): Promise<void>
+// invoke('adb_reverse', { serial: string, remotePort: number, localPort: number }): Promise<void>
+// invoke('adb_remove_reverse', { serial: string, remotePort: number }): Promise<void>
+// invoke('adb_list_reverse', { serial: string }): Promise<{ remotePort: number; localPort: number }[]>
 // invoke('start_logcat', { serial: string }): Promise<void>
 // invoke('stop_logcat', { serial: string }): Promise<void>
 

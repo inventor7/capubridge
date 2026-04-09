@@ -1265,6 +1265,12 @@ pub fn adb_list_webview_sockets(serial: String) -> Result<Vec<WebViewSocket>, St
         unix_output.lines().count()
     );
 
+    if unix_output.trim().is_empty() {
+        log::warn!(
+            "[adb_list_webview_sockets] Empty /proc/net/unix output — this device may require root access"
+        );
+    }
+
     let mut sockets: Vec<WebViewSocket> = unix_output
         .lines()
         .filter(|l| l.contains("devtools_remote"))
@@ -1316,4 +1322,75 @@ pub fn adb_list_webview_sockets(serial: String) -> Result<Vec<WebViewSocket>, St
     }
 
     Ok(sockets)
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReverseRule {
+    pub remote_port: u16,
+    pub local_port: u16,
+}
+
+#[tauri::command]
+pub fn adb_reverse(serial: String, remote_port: u16, local_port: u16) -> Result<(), String> {
+    let adb = which::which("adb").map_err(|_| "adb not found in PATH".to_string())?;
+    let output = std::process::Command::new(adb)
+        .args([
+            "-s",
+            &serial,
+            "reverse",
+            &format!("tcp:{remote_port}"),
+            &format!("tcp:{local_port}"),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run adb: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(stderr.trim().to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn adb_remove_reverse(serial: String, remote_port: u16) -> Result<(), String> {
+    let adb = which::which("adb").map_err(|_| "adb not found in PATH".to_string())?;
+    let output = std::process::Command::new(adb)
+        .args([
+            "-s",
+            &serial,
+            "reverse",
+            "--remove",
+            &format!("tcp:{remote_port}"),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run adb: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(stderr.trim().to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn adb_list_reverse(serial: String) -> Result<Vec<ReverseRule>, String> {
+    let adb = which::which("adb").map_err(|_| "adb not found in PATH".to_string())?;
+    let output = std::process::Command::new(adb)
+        .args(["-s", &serial, "reverse", "--list"])
+        .output()
+        .map_err(|e| format!("Failed to run adb: {e}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let rules = stdout
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.trim().split_whitespace().collect();
+            if parts.len() >= 2 {
+                let remote = parts[0].trim_start_matches("tcp:").parse::<u16>().ok()?;
+                let local = parts[1].trim_start_matches("tcp:").parse::<u16>().ok()?;
+                Some(ReverseRule { remote_port: remote, local_port: local })
+            } else {
+                None
+            }
+        })
+        .collect();
+    Ok(rules)
 }
