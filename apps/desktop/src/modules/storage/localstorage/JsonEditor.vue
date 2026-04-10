@@ -64,7 +64,11 @@ const collapsedIndices = ref<Set<number>>(new Set());
 
 function toggleCollapse(idx: number) {
   const next = new Set(collapsedIndices.value);
-  next.has(idx) ? next.delete(idx) : next.add(idx);
+  if (next.has(idx)) {
+    next.delete(idx);
+  } else {
+    next.add(idx);
+  }
   collapsedIndices.value = next;
 }
 
@@ -91,7 +95,11 @@ function collapseAll() {
   collapsedIndices.value = new Set(collapsibleIndices.value);
 }
 function toggleAll() {
-  allCollapsed.value ? expandAll() : collapseAll();
+  if (allCollapsed.value) {
+    expandAll();
+  } else {
+    collapseAll();
+  }
 }
 
 // Visible items for preview mode

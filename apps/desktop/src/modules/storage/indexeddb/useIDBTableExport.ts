@@ -12,6 +12,16 @@ function downloadFile(content: string, filename: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
+function stringifyCellValue(cell: unknown): string {
+  if (cell === null || cell === undefined) return "";
+  if (typeof cell === "string") return cell;
+  if (typeof cell === "number" || typeof cell === "boolean" || typeof cell === "bigint") {
+    return `${cell}`;
+  }
+  if (typeof cell === "object") return JSON.stringify(cell);
+  return "";
+}
+
 export function useIDBTableExport(
   table: Table<IDBRecord>,
   dbName: () => string,
@@ -26,12 +36,7 @@ export function useIDBTableExport(
       visibleColumns
         .map((col) => {
           const cell = row.getValue(col.id);
-          const str =
-            cell === null || cell === undefined
-              ? ""
-              : typeof cell === "object"
-                ? JSON.stringify(cell)
-                : String(cell);
+          const str = stringifyCellValue(cell);
           return `"${str.replace(/"/g, '""')}"`;
         })
         .join(","),

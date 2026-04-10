@@ -36,7 +36,7 @@ export function useInspector() {
     cleanups.push(
       domDomain.onChildNodeInserted(({ parentNodeId }) => {
         if (domDomain) {
-          domDomain.requestChildNodes(parentNodeId, 1);
+          void domDomain.requestChildNodes(parentNodeId, 1);
         }
       }),
     );

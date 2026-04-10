@@ -35,12 +35,22 @@ export function useSqliteRowDetail(options: UseSqliteRowDetailOptions) {
     return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
   });
 
+  function stringifyValue(value: unknown): string {
+    if (value == null) return "";
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+      return `${value}`;
+    }
+    if (typeof value === "object") return JSON.stringify(value);
+    return "";
+  }
+
   function getRowLabel(record: RowRecord): string {
-    // Try to find a good label: first column, or rowid, or index
     const cols = columnNames();
     if (cols.length > 0) {
       const firstVal = record[cols[0]!];
-      if (firstVal !== null && firstVal !== undefined) return String(firstVal);
+      const label = stringifyValue(firstVal);
+      if (label !== "") return label;
     }
     return `Row`;
   }

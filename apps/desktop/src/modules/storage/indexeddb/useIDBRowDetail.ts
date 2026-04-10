@@ -15,6 +15,7 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
   const { getFilteredRows, totalRecords, fetchRecord, onEdit, onDelete } = options;
 
   const selectedRow = ref<IDBRecord | null>(null);
+  const selectedKey = ref<unknown>(null);
   const isDetailOpen = ref(false);
   const editJson = ref("");
   const editOriginalJson = ref("");
@@ -38,12 +39,26 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
     return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
   });
 
+  function stringifyKey(key: IDBValidKey): string {
+    if (typeof key === "string" || typeof key === "number" || typeof key === "bigint") {
+      return `${key}`;
+    }
+    if (key instanceof Date) {
+      return key.toISOString();
+    }
+    if (Array.isArray(key)) {
+      return JSON.stringify(key);
+    }
+    return "";
+  }
+
   function openRowDetail(record: IDBRecord, rowIndex?: number) {
     selectedRow.value = record;
+    selectedKey.value = record.key;
     isDetailOpen.value = true;
     editJson.value = JSON.stringify(record.value, null, 2);
     editOriginalJson.value = editJson.value;
-    editKey.value = String(record.key);
+    editKey.value = stringifyKey(record.key);
     jsonEditorValid.value = true;
     if (rowIndex !== undefined) currentRowIndex.value = rowIndex;
     copiedRaw.value = false;
@@ -68,9 +83,10 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
     if (localRow) {
       currentRowIndex.value = nextIdx;
       selectedRow.value = localRow.original;
+      selectedKey.value = localRow.original.key;
       editJson.value = JSON.stringify(localRow.original.value, null, 2);
       editOriginalJson.value = editJson.value;
-      editKey.value = String(localRow.original.key);
+      editKey.value = stringifyKey(localRow.original.key);
       jsonEditorValid.value = true;
       copiedRaw.value = false;
     } else {
@@ -80,9 +96,10 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
         if (record) {
           currentRowIndex.value = nextIdx;
           selectedRow.value = record;
+          selectedKey.value = record.key;
           editJson.value = JSON.stringify(record.value, null, 2);
           editOriginalJson.value = editJson.value;
-          editKey.value = String(record.key);
+          editKey.value = stringifyKey(record.key);
           jsonEditorValid.value = true;
           copiedRaw.value = false;
         }
@@ -91,10 +108,14 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
   }
 
   function saveEdit() {
-    if (!selectedRow.value || !jsonEditorValid.value) return;
+    if (!selectedRow.value || selectedKey.value == null || !jsonEditorValid.value) return;
     try {
-      const parsed = JSON.parse(editJson.value);
-      onEdit({ key: selectedRow.value.key, value: parsed });
+      const parsed: unknown = JSON.parse(editJson.value);
+      const record: IDBRecord = {
+        key: selectedKey.value as IDBValidKey,
+        value: parsed,
+      };
+      onEdit(record);
       editOriginalJson.value = editJson.value;
       toast.success("Record saved", { description: `Key: ${editKey.value}` });
     } catch {
@@ -103,11 +124,11 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
   }
 
   function deleteRow() {
-    if (!selectedRow.value) return;
-    onDelete(selectedRow.value.key);
+    if (selectedKey.value == null) return;
+    onDelete(selectedKey.value as IDBValidKey);
     toast.success("Record deleted", { description: `Key: ${editKey.value}` });
     const total = totalRecords() ?? getFilteredRows().length;
-    navigateRow("next");
+    void navigateRow("next");
     if (currentRowIndex.value >= total) {
       isDetailOpen.value = false;
     }
@@ -124,11 +145,11 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
     if (!isDetailOpen.value) return;
     if (e.ctrlKey && e.key === "ArrowUp") {
       e.preventDefault();
-      navigateRow("prev");
+      void navigateRow("prev");
     }
     if (e.ctrlKey && e.key === "ArrowDown") {
       e.preventDefault();
-      navigateRow("next");
+      void navigateRow("next");
     }
     if (e.ctrlKey && e.key === "s") {
       e.preventDefault();

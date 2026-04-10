@@ -46,8 +46,16 @@ export const OPERATORS: { value: FilterOperator; label: string; needsValue: bool
 
 function getCellValue(cellValue: unknown): string {
   if (cellValue == null) return "";
+  if (typeof cellValue === "string") return cellValue;
+  if (
+    typeof cellValue === "number" ||
+    typeof cellValue === "boolean" ||
+    typeof cellValue === "bigint"
+  ) {
+    return `${cellValue}`;
+  }
   if (typeof cellValue === "object") return JSON.stringify(cellValue);
-  return String(cellValue);
+  return "";
 }
 
 function matchesFilter(cellValue: unknown, operator: FilterOperator, filterValue: string): boolean {
