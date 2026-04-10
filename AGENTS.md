@@ -96,6 +96,43 @@ Full specification: see `docs/SPEC.md`
 
 ## Mandatory Coding Conventions
 
+### CRITICAL: No new `adb.exe` process spawns
+
+**Never** spawn a new `adb.exe` process via `std::process::Command::new("adb")`. All ADB commands must go through the shared `ADB_SERVER` static `LazyLock<Mutex<ADBServer>>` which maintains a single TCP connection to the ADB daemon on port 5037.
+
+Spawning new `adb.exe` processes causes:
+
+- RunDLL error dialog popups on Windows (third-party DLL injection into spawned processes)
+- Performance overhead (process startup, connection negotiation)
+- Potential race conditions with multiple ADB server instances
+
+**Correct pattern:**
+
+```rust
+let mut server = get_server().lock();
+let mut device = server
+    .get_device_by_name(&serial)
+    .map_err(|e| format!("Device not found: {e}"))?;
+device.shell_command(&cmd, Some(&mut stdout), None)?;
+device.pull(&remote_path, &mut out)?;
+```
+
+**Wrong pattern — NEVER do this:**
+
+```rust
+let adb = which::which("adb")?;
+let output = std::process::Command::new(adb)
+    .args(["-s", &serial, "shell", "cmd"])
+    .output()?;
+```
+
+The only exception is the global `suppress_error_dialogs()` call in `lib.rs` setup, and `CREATE_NO_WINDOW` flags for essential process spawns (like Chrome launch).
+
+### Comments policy
+
+- **TypeScript**: Only JSDoc comments. No inline `//` comments.
+- **Rust**: Only doc comments (`///`) for public functions. No inline `//` comments.
+
 ### Vue components
 
 ```vue
