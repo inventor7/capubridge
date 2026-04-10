@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { toast } from "vue-sonner";
+import { useRouter } from "vue-router";
 import { useMirrorStore } from "@/stores/mirror.store";
 import { useDevicesStore } from "@/stores/devices.store";
+import { useInspectStore } from "@/stores/inspect.store";
 import { useMirrorStream } from "./useMirrorStream";
 import MirrorStream from "./MirrorStream.vue";
 import MirrorControls from "./MirrorControls.vue";
 import MirrorTopBar from "./MirrorTopBar.vue";
 import MirrorSettingsPanel from "./MirrorSettingsPanel.vue";
 
+const router = useRouter();
 const mirrorStore = useMirrorStore();
 const devicesStore = useDevicesStore();
+const inspectStore = useInspectStore();
 const {
   useScrcpyCanvas,
   isConnected,
@@ -41,12 +45,16 @@ function startResize(e: MouseEvent) {
     mirrorStore.setWidth(startWidth + (isLeft ? delta : -delta));
   }
 
+  function onWheel() {}
+
   function onUp() {
     isResizing.value = false;
+    window.removeEventListener("wheel", onWheel);
     window.removeEventListener("mousemove", onMove);
     window.removeEventListener("mouseup", onUp);
   }
 
+  window.addEventListener("wheel", onWheel);
   window.addEventListener("mousemove", onMove);
   window.addEventListener("mouseup", onUp);
 }
@@ -133,6 +141,11 @@ async function handleMaximize() {
   } catch {}
 }
 
+function handleInspect() {
+  inspectStore.inspectMode = true;
+  router.push("/inspect/elements");
+}
+
 function toggleRecord() {
   if (mirrorStore.isRecording) void stopRecording();
   else void startRecording();
@@ -172,6 +185,7 @@ function toggleRecord() {
         @toggle-always-on-top="handleToggleAlwaysOnTop"
         @toggle-side="mirrorStore.setSide(mirrorStore.side === 'right' ? 'left' : 'right')"
         @toggle-detach="handleDetach"
+        @inspect="handleInspect"
         @launch-scrcpy="launchExternalScrcpy"
         @maximize="handleMaximize"
         @update:settings-open="settingsOpen = $event"

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ChevronLeft, Home, LayoutGrid, Volume2, VolumeX, Power } from "lucide-vue-next";
-import { AndroidKey } from "./useMirrorStream";
+import { AndroidKey, type AndroidKeyCode } from "./useMirrorStream";
 
 const emit = defineEmits<{
-  keyevent: [keycode: number];
+  keyevent: [keycode: AndroidKeyCode];
 }>();
 </script>
 

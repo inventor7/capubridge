@@ -400,12 +400,6 @@ export function useMirrorStream() {
         touchInvokeMsTotal += invokeMs;
         touchQueueDelayMsTotal += queuedMs;
         if (import.meta.env.DEV && item.action !== "move") {
-          console.debug("[mirror-input]", {
-            action: item.action,
-            invokeMs: Number(invokeMs.toFixed(2)),
-            queueDelayMs: Number(queuedMs.toFixed(2)),
-            queued: touchQueue.length,
-          });
         }
       } catch (touchErr) {
         if (import.meta.env.DEV) {
@@ -470,7 +464,10 @@ export function useMirrorStream() {
       const dir = await downloadDir();
       const savePath = await join(dir, `capubridge_rec_${Date.now()}.mp4`);
       toast.info("Saving recording…");
-      await invoke("adb_mirror_stop_recording", { serial: device.serial, savePath });
+      await invoke("adb_mirror_stop_recording", {
+        serial: device.serial,
+        savePath,
+      });
       mirrorStore.isRecording = false;
       toast.success("Recording saved", { description: savePath });
     } catch (saveErr) {
@@ -497,7 +494,9 @@ export function useMirrorStream() {
       });
       toast.success("Opened native scrcpy window");
     } catch (externalErr) {
-      toast.error("Failed to start scrcpy", { description: String(externalErr) });
+      toast.error("Failed to start scrcpy", {
+        description: String(externalErr),
+      });
     }
   }
 
