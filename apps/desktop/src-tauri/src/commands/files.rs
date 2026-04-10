@@ -230,36 +230,6 @@ fn read_file_bytes(
         .map_err(|e| format!("Decode failed: {e}"))
 }
 
-/// Read file bytes from a private app directory using `run-as`.
-pub fn read_file_bytes_with_runas(
-    device: &mut adb_client::server_device::ADBServerDevice,
-    path: &str,
-    package: &str,
-) -> Result<Vec<u8>, String> {
-    let escaped = shell_escape(path);
-    let pkg_escaped = shell_escape(package);
-    let command = format!(
-        "run-as '{}' cat '{}' 2>/dev/null | base64",
-        pkg_escaped, escaped
-    );
-    let mut out = Vec::new();
-    let _ = device.shell_command(&command, Some(&mut out), None::<&mut dyn Write>);
-
-    let b64: String = out
-        .iter()
-        .filter(|&&b| !matches!(b, b'\n' | b'\r' | b' '))
-        .map(|&b| b as char)
-        .collect();
-
-    if b64.is_empty() {
-        return Err("File not found or not accessible".to_string());
-    }
-
-    general_purpose::STANDARD
-        .decode(&b64)
-        .map_err(|e| format!("Decode failed: {e}"))
-}
-
 fn open_with_default_app(local_path: &Path) -> Result<(), String> {
     let path_str = local_path.to_string_lossy().to_string();
 

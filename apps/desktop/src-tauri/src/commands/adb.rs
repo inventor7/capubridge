@@ -15,23 +15,12 @@ use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn create_adb_server() -> ADBServer {
-    #[cfg(target_os = "windows")]
-    {
-        // adb_client runs `adb start-server` on local connect().
-        // On some Windows setups this triggers repeated RunDLL popups due to
-        // third-party DLL injection into spawned adb.exe processes.
-        // Force manual adb server startup to avoid popups.
-        return ADBServer::new_from_path(
-            SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5037),
-            Some("__capubridge_disable_adb_autostart__".to_string()),
-        );
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        ADBServer::default()
-    }
+    ADBServer::new_from_path(
+        SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5037),
+        Some("__capubridge_disable_adb_autostart__".to_string()),
+    )
 }
+
 
 pub(crate) fn map_adb_server_err(err: impl std::fmt::Display) -> String {
     let msg = err.to_string();
@@ -42,7 +31,7 @@ pub(crate) fn map_adb_server_err(err: impl std::fmt::Display) -> String {
             || msg.contains("failed to lookup address information")
         {
             return format!(
-                "{msg}. adb auto-start is disabled on Windows to avoid RunDLL popups. Start adb once manually with: adb start-server"
+                "{msg}. adb server is not running. Start it with: adb start-server"
             );
         }
     }
@@ -1087,9 +1076,8 @@ pub fn adb_open_package(serial: String, package_name: String) -> Result<String, 
     Ok(trimmed.to_string())
 }
 
-/// Extract the app icon from an APK already installed on the device.
-/// Uses `unzip -p` (available via toybox on Android 6+) to stream just the icon
-/// without pulling the whole APK. Returns a `data:<mime>;base64,...` URL.
+/// Extract the app icon from an APK installed on the device.
+/// Returns a `data:<mime>;base64,...` URL.
 #[tauri::command]
 pub async fn adb_get_app_icon(
     serial: String,
@@ -1098,7 +1086,6 @@ pub async fn adb_get_app_icon(
     icon_path: Option<String>,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        // Independent connection so multiple icon fetches run in parallel
         let mut server = create_adb_server();
         let mut device = server
             .get_device_by_name(&serial)
@@ -1112,7 +1099,6 @@ pub async fn adb_get_app_icon(
             }
         }
 
-        // Try densities from high to medium; prefer PNG then WebP
         let candidates: &[(&str, &str)] = &[
             ("res/mipmap-xhdpi-v4/ic_launcher.png", "image/png"),
             ("res/mipmap-hdpi-v4/ic_launcher.png", "image/png"),
@@ -1148,15 +1134,11 @@ pub async fn adb_get_app_icon(
                 let mut out = Vec::new();
                 let cmd = format!("unzip -p '{}' '{}' 2>/dev/null | base64", escaped, icon_path);
                 let _ = device.shell_command(&cmd, Some(&mut out), None::<&mut dyn Write>);
-                // Strip whitespace (base64 wraps at 76 chars on Android)
                 let b64: String = out
                     .iter()
                     .filter(|&&b| !matches!(b, b'\n' | b'\r' | b' '))
                     .map(|&b| b as char)
                     .collect();
-                // Validate magic bytes in base64 to reject unzip error text:
-                //   PNG  -> raw \x89PNG -> base64 "iVBOR"
-                //   WebP -> raw RIFF   -> base64 "UklGR"
                 let is_valid =
                     (b64.starts_with("iVBOR") || b64.starts_with("UklGR")) && b64.len() > 100;
                 if is_valid {
@@ -1171,7 +1153,6 @@ pub async fn adb_get_app_icon(
                 }
             }
 
-            // Fallback: discover candidate resources dynamically for apps with non-standard icon names.
             let list_cmd = format!("unzip -l '{}' 'res/*' 2>/dev/null", escaped);
             let listing = shell_output(&mut device, &list_cmd);
             let mut discovered: Vec<String> = listing
@@ -1333,53 +1314,39 @@ pub struct ReverseRule {
 
 #[tauri::command]
 pub fn adb_reverse(serial: String, remote_port: u16, local_port: u16) -> Result<(), String> {
-    let adb = which::which("adb").map_err(|_| "adb not found in PATH".to_string())?;
-    let output = std::process::Command::new(adb)
-        .args([
-            "-s",
-            &serial,
-            "reverse",
-            &format!("tcp:{remote_port}"),
-            &format!("tcp:{local_port}"),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run adb: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.trim().to_string());
-    }
-    Ok(())
+    let mut server = get_server().lock();
+    let mut device = server
+        .get_device_by_name(&serial)
+        .map_err(|e| format!("Device not found: {e}"))?;
+    let local = format!("tcp:{local_port}");
+    let remote = format!("tcp:{remote_port}");
+    device.reverse(remote, local).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn adb_remove_reverse(serial: String, remote_port: u16) -> Result<(), String> {
-    let adb = which::which("adb").map_err(|_| "adb not found in PATH".to_string())?;
-    let output = std::process::Command::new(adb)
-        .args([
-            "-s",
-            &serial,
-            "reverse",
-            "--remove",
-            &format!("tcp:{remote_port}"),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run adb: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(stderr.trim().to_string());
-    }
-    Ok(())
+pub fn adb_remove_reverse(serial: String, _remote_port: u16) -> Result<(), String> {
+    let mut server = get_server().lock();
+    let mut device = server
+        .get_device_by_name(&serial)
+        .map_err(|e| format!("Device not found: {e}"))?;
+    device
+        .reverse_remove_all()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn adb_list_reverse(serial: String) -> Result<Vec<ReverseRule>, String> {
-    let adb = which::which("adb").map_err(|_| "adb not found in PATH".to_string())?;
-    let output = std::process::Command::new(adb)
-        .args(["-s", &serial, "reverse", "--list"])
-        .output()
-        .map_err(|e| format!("Failed to run adb: {e}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let rules = stdout
+    let mut server = get_server().lock();
+    let mut device = server
+        .get_device_by_name(&serial)
+        .map_err(|e| format!("Device not found: {e}"))?;
+    let cmd = "reverse --list";
+    let mut stdout = Vec::new();
+    device
+        .shell_command(&cmd, Some(&mut stdout), None)
+        .map_err(|e| format!("Shell command failed: {e}"))?;
+    let output = String::from_utf8_lossy(&stdout);
+    Ok(output
         .lines()
         .filter_map(|line| {
             let parts: Vec<&str> = line.trim().split_whitespace().collect();
@@ -1391,6 +1358,5 @@ pub fn adb_list_reverse(serial: String) -> Result<Vec<ReverseRule>, String> {
                 None
             }
         })
-        .collect();
-    Ok(rules)
+        .collect())
 }

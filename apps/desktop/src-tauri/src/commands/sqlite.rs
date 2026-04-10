@@ -1,11 +1,12 @@
 use adb_client::ADBDeviceExt;
 use crate::commands::adb::get_server;
-use crate::commands::files::{read_file_bytes_with_runas, shell_escape};
+use crate::commands::files::shell_escape;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::io::Write as IoWrite;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
@@ -23,7 +24,7 @@ pub struct SqliteDbFile {
 #[serde(rename_all = "camelCase")]
 pub struct SqliteTableInfo {
     pub name: String,
-    pub table_type: String, // "table" | "view"
+    pub table_type: String,
     pub row_count: i64,
     pub sql: String,
 }
@@ -59,7 +60,6 @@ pub struct SqliteQueryResult {
 }
 
 // ─── DB Cache ───────────────────────────────────────────────────────────────────
-// Maps "serial::package::dbpath" → local temp file path
 static DB_CACHE: LazyLock<Mutex<HashMap<String, PathBuf>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -73,8 +73,35 @@ fn temp_dir() -> PathBuf {
     dir
 }
 
-/// Pull a SQLite database from the device into a local temp file.
-/// Uses `run-as <package>` to access app-private databases.
+// ─── On-device helpers ──────────────────────────────────────────────────────────
+// Run sqlite3 on the device via run-as. No file transfer needed.
+
+fn run_sqlite3_on_device(
+    device: &mut adb_client::server_device::ADBServerDevice,
+    package: &str,
+    db_path: &str,
+    sql: &str,
+) -> Result<String, String> {
+    let pkg_escaped = shell_escape(package);
+    let path_escaped = shell_escape(db_path);
+    let sql_escaped = sql.replace('\'', "'\\''");
+    let cmd = format!(
+        "run-as '{}' sqlite3 '{}' '{}'",
+        pkg_escaped, path_escaped, sql_escaped
+    );
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let _ = device.shell_command(&cmd, Some(&mut stdout), Some(&mut stderr));
+
+    let err = String::from_utf8_lossy(&stderr).to_string();
+    if !err.trim().is_empty() && err.contains("Error") {
+        return Err(err.trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&stdout).to_string())
+}
+
+// ─── File pull helpers ──────────────────────────────────────────────────────────
+
 fn pull_db_to_temp(
     serial: &str,
     package: &str,
@@ -83,7 +110,6 @@ fn pull_db_to_temp(
 ) -> Result<PathBuf, String> {
     let key = cache_key(serial, package, db_path);
 
-    // Check cache unless forced refresh
     if !force {
         let cache = DB_CACHE.lock();
         if let Some(path) = cache.get(&key) {
@@ -93,18 +119,14 @@ fn pull_db_to_temp(
         }
     }
 
-    // Pull via ADB
     let bytes = pull_db_bytes(serial, package, db_path)?;
     if bytes.len() < 16 {
         return Err("File too small to be a valid SQLite database".to_string());
     }
-
-    // Verify SQLite header magic
     if &bytes[0..16] != b"SQLite format 3\0" {
         return Err("Not a valid SQLite database file".to_string());
     }
 
-    // Write to temp file
     let safe_name = db_path
         .replace('/', "_")
         .replace('\\', "_")
@@ -115,29 +137,18 @@ fn pull_db_to_temp(
     std::fs::write(&local_path, &bytes)
         .map_err(|e| format!("Failed to write temp DB: {e}"))?;
 
-    // Also pull -wal and -shm if they exist (best-effort)
+    // Best-effort: pull WAL and SHM
     for suffix in ["-wal", "-shm"] {
         let wal_path = format!("{db_path}{suffix}");
         if let Ok(wal_bytes) = pull_db_bytes(serial, package, &wal_path) {
             if !wal_bytes.is_empty() {
-                let wal_local = local_path.with_extension(
-                    format!(
-                        "{}{}",
-                        local_path
-                            .extension()
-                            .map(|e| e.to_string_lossy().to_string())
-                            .unwrap_or_default(),
-                        suffix
-                    ),
-                );
+                let wal_local = PathBuf::from(format!("{}{}", local_path.display(), suffix));
                 let _ = std::fs::write(&wal_local, &wal_bytes);
             }
         }
     }
 
-    // Update cache
     DB_CACHE.lock().insert(key, local_path.clone());
-
     Ok(local_path)
 }
 
@@ -147,7 +158,33 @@ fn pull_db_bytes(serial: &str, package: &str, path: &str) -> Result<Vec<u8>, Str
         .get_device_by_name(serial)
         .map_err(|e| format!("Device not found: {e}"))?;
 
-    read_file_bytes_with_runas(&mut device, path, package)
+    let safe_name = path.replace('/', "_").trim_start_matches('_').to_string();
+    let tmp_path = format!("/data/local/tmp/_capu_{safe_name}");
+    let cmd = format!(
+        "run-as '{}' cat '{}' > '{}'",
+        shell_escape(package),
+        shell_escape(path),
+        shell_escape(&tmp_path),
+    );
+
+    let mut stdout = Vec::new();
+    device
+        .shell_command(&cmd, Some(&mut stdout), None)
+        .map_err(|e| format!("Shell command failed: {e}"))?;
+
+    let mut out = Vec::new();
+    device
+        .pull(&tmp_path, &mut out)
+        .map_err(|e| format!("Pull failed: {e}"))?;
+
+    let rm_cmd = format!("rm '{}'", shell_escape(&tmp_path));
+    let _ = device.shell_command(&rm_cmd, None, None);
+
+    if out.is_empty() {
+        return Err("File is empty or not accessible".to_string());
+    }
+
+    Ok(out)
 }
 
 fn open_db(local_path: &PathBuf) -> Result<Connection, String> {
@@ -169,7 +206,6 @@ fn sqlite_value_to_json(val: &rusqlite::types::Value) -> Value {
         }
         rusqlite::types::Value::Text(s) => Value::String(s.clone()),
         rusqlite::types::Value::Blob(b) => {
-            // Show blob as hex preview (first 64 bytes)
             let hex: String = b.iter().take(64).map(|byte| format!("{byte:02x}")).collect();
             let suffix = if b.len() > 64 { "…" } else { "" };
             Value::String(format!("[BLOB {len}B] {hex}{suffix}", len = b.len()))
@@ -192,19 +228,14 @@ pub async fn sqlite_list_databases(
             .map_err(|e| format!("Device not found: {e}"))?;
 
         let db_dir = format!("/data/data/{package}/databases");
-        let escaped = shell_escape(&db_dir);
         let cmd = format!(
             "run-as '{}' ls -la '{}'",
             shell_escape(&package),
-            escaped
+            shell_escape(&db_dir)
         );
 
         let mut stdout = Vec::new();
-        let _ = device.shell_command(
-            &cmd,
-            Some(&mut stdout),
-            None::<&mut dyn std::io::Write>,
-        );
+        let _ = device.shell_command(&cmd, Some(&mut stdout), None::<&mut dyn IoWrite>);
         let output = String::from_utf8_lossy(&stdout);
 
         let mut dbs = Vec::new();
@@ -213,23 +244,16 @@ pub async fn sqlite_list_databases(
             if line.is_empty() || line.starts_with("total") || line.starts_with("d") {
                 continue;
             }
-            // Skip WAL/SHM/journal files
-            if line.ends_with("-wal")
-                || line.ends_with("-shm")
-                || line.ends_with("-journal")
-            {
+            if line.ends_with("-wal") || line.ends_with("-shm") || line.ends_with("-journal") {
                 continue;
             }
 
-            // Parse ls -la line: permissions links owner group size date time name
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() < 7 {
                 continue;
             }
 
             let size: u64 = parts[4].parse().unwrap_or(0);
-
-            // Determine name start index (toybox vs busybox date format)
             let name_start =
                 if parts[5].len() == 10 && parts[5].as_bytes().get(4) == Some(&b'-') {
                     7usize
@@ -264,8 +288,23 @@ pub async fn sqlite_open_database(
     db_path: String,
 ) -> Result<Vec<SqliteTableInfo>, String> {
     tokio::task::spawn_blocking(move || {
+        let start = std::time::Instant::now();
+        log::info!(
+            "[sqlite_open_database] Pulling {}::{}::{} to temp",
+            serial, package, db_path
+        );
         let local = pull_db_to_temp(&serial, &package, &db_path, true)?;
+        let pull_ms = start.elapsed().as_millis();
+        let file_size = local.metadata().map(|m| m.len()).unwrap_or(0);
+        log::info!(
+            "[sqlite_open_database] Pulled {} bytes in {}ms to {}",
+            file_size,
+            pull_ms,
+            local.display()
+        );
         let conn = open_db(&local)?;
+        let open_ms = start.elapsed().as_millis() - pull_ms;
+        log::info!("[sqlite_open_database] Opened in {}ms", open_ms);
 
         let mut stmt = conn
             .prepare(
@@ -301,13 +340,14 @@ pub async fn sqlite_open_database(
             })
             .collect();
 
+        log::info!("[sqlite_open_database] Found {} tables in {}", tables.len(), db_path);
         Ok(tables)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// Get column info for a specific table.
+/// Get column info for a table. Uses on-device sqlite3 — no file transfer.
 #[tauri::command]
 pub async fn sqlite_table_columns(
     serial: String,
@@ -316,30 +356,39 @@ pub async fn sqlite_table_columns(
     table_name: String,
 ) -> Result<Vec<SqliteColumnInfo>, String> {
     tokio::task::spawn_blocking(move || {
-        let local = pull_db_to_temp(&serial, &package, &db_path, false)?;
-        let conn = open_db(&local)?;
+        let mut server = get_server().lock();
+        let mut device = server
+            .get_device_by_name(&serial)
+            .map_err(|e| format!("Device not found: {e}"))?;
 
-        let mut stmt = conn
-            .prepare(&format!(
-                "PRAGMA table_info(\"{}\")",
-                table_name.replace('"', "\"\"")
-            ))
-            .map_err(|e| format!("Failed to get column info: {e}"))?;
+        let safe_table = table_name.replace('"', "\"\"");
+        let sql = format!("PRAGMA table_info(\"{safe_table}\");");
+        let output = run_sqlite3_on_device(&mut device, &package, &db_path, &sql)?;
 
-        let columns = stmt
-            .query_map([], |row| {
-                Ok(SqliteColumnInfo {
-                    cid: row.get(0)?,
-                    name: row.get(1)?,
-                    col_type: row.get(2)?,
-                    notnull: row.get::<_, bool>(3)?,
-                    default_value: row.get(4)?,
-                    pk: row.get::<_, bool>(5)?,
-                })
-            })
-            .map_err(|e| format!("Failed to read columns: {e}"))?
-            .filter_map(|r| r.ok())
-            .collect();
+        let mut columns = Vec::new();
+        for line in output.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // PRAGMA table_info output: cid|name|type|notnull|dflt_value|pk
+            let parts: Vec<&str> = line.splitn(6, '|').collect();
+            if parts.len() < 6 {
+                continue;
+            }
+            columns.push(SqliteColumnInfo {
+                cid: parts[0].parse().unwrap_or(0),
+                name: parts[1].to_string(),
+                col_type: parts[2].to_string(),
+                notnull: parts[3] == "1",
+                default_value: if parts[4].is_empty() {
+                    None
+                } else {
+                    Some(parts[4].to_string())
+                },
+                pk: parts[5].trim() == "1",
+            });
+        }
 
         Ok(columns)
     })
@@ -347,7 +396,7 @@ pub async fn sqlite_table_columns(
     .map_err(|e| e.to_string())?
 }
 
-/// Get indexes for a specific table.
+/// Get indexes for a table. Uses on-device sqlite3 — no file transfer.
 #[tauri::command]
 pub async fn sqlite_table_indexes(
     serial: String,
@@ -356,52 +405,62 @@ pub async fn sqlite_table_indexes(
     table_name: String,
 ) -> Result<Vec<SqliteIndexInfo>, String> {
     tokio::task::spawn_blocking(move || {
-        let local = pull_db_to_temp(&serial, &package, &db_path, false)?;
-        let conn = open_db(&local)?;
+        let mut server = get_server().lock();
+        let mut device = server
+            .get_device_by_name(&serial)
+            .map_err(|e| format!("Device not found: {e}"))?;
 
-        let mut stmt = conn
-            .prepare(&format!(
-                "PRAGMA index_list(\"{}\")",
-                table_name.replace('"', "\"\"")
-            ))
-            .map_err(|e| format!("Failed to get index list: {e}"))?;
+        let safe_table = table_name.replace('"', "\"\"");
+        let sql = format!("PRAGMA index_list(\"{safe_table}\");");
+        let output = run_sqlite3_on_device(&mut device, &package, &db_path, &sql)?;
 
-        let indexes: Vec<SqliteIndexInfo> = stmt
-            .query_map([], |row| {
-                let name: String = row.get(1)?;
-                let unique: bool = row.get(2)?;
-                Ok((name, unique))
-            })
-            .map_err(|e| format!("Failed to read indexes: {e}"))?
-            .filter_map(|r| r.ok())
-            .map(|(name, unique)| {
-                let sql = conn
-                    .query_row(
-                        "SELECT sql FROM sqlite_master WHERE name = ?1",
-                        [&name],
-                        |row| row.get::<_, Option<String>>(0),
-                    )
-                    .unwrap_or(None);
+        let mut indexes = Vec::new();
+        for line in output.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            // index_list: seq|name|unique|origin|partial
+            let parts: Vec<&str> = line.splitn(5, '|').collect();
+            if parts.len() < 3 {
+                continue;
+            }
+            let name = parts[1].to_string();
+            let unique = parts[2] == "1";
 
-                let columns: Vec<String> = conn
-                    .prepare(&format!("PRAGMA index_info(\"{}\")", name.replace('"', "\"\"")))
-                    .ok()
-                    .map(|mut s| {
-                        s.query_map([], |row| row.get::<_, String>(2))
-                            .ok()
-                            .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                            .unwrap_or_default()
-                    })
+            // Get index columns
+            let info_sql = format!("PRAGMA index_info(\"{}\");", name.replace('"', "\"\""));
+            let info_output =
+                run_sqlite3_on_device(&mut device, &package, &db_path, &info_sql)
                     .unwrap_or_default();
 
-                SqliteIndexInfo {
-                    name,
-                    unique,
-                    columns,
-                    sql,
-                }
-            })
-            .collect();
+            let columns: Vec<String> = info_output
+                .lines()
+                .filter_map(|l| {
+                    // index_info: seqno|cid|name
+                    let p: Vec<&str> = l.splitn(3, '|').collect();
+                    p.get(2).map(|s| s.trim().to_string())
+                })
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            // Get index SQL
+            let sql_query = format!(
+                "SELECT sql FROM sqlite_master WHERE name='{}';",
+                name.replace('\'', "''")
+            );
+            let sql = run_sqlite3_on_device(&mut device, &package, &db_path, &sql_query)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+
+            indexes.push(SqliteIndexInfo {
+                name,
+                unique,
+                columns,
+                sql,
+            });
+        }
 
         Ok(indexes)
     })
@@ -410,6 +469,7 @@ pub async fn sqlite_table_indexes(
 }
 
 /// Fetch paginated rows from a table.
+/// This is the only command that pulls the DB file (lazy, cached).
 #[tauri::command]
 pub async fn sqlite_table_rows(
     serial: String,
@@ -454,7 +514,10 @@ pub async fn sqlite_table_rows(
             .query_map([], |row| {
                 let mut vals = Vec::with_capacity(col_count);
                 for i in 0..col_count {
-                    let val = row.get_ref(i).map(|v| v.into()).unwrap_or(rusqlite::types::Value::Null);
+                    let val = row
+                        .get_ref(i)
+                        .map(|v| v.into())
+                        .unwrap_or(rusqlite::types::Value::Null);
                     vals.push(sqlite_value_to_json(&val));
                 }
                 Ok(vals)
@@ -478,7 +541,7 @@ pub async fn sqlite_table_rows(
     .map_err(|e| e.to_string())?
 }
 
-/// Execute arbitrary SQL (SELECT only for safety).
+/// Execute arbitrary SQL query. Pulls the DB file (lazy, cached).
 #[tauri::command]
 pub async fn sqlite_execute_query(
     serial: String,
@@ -501,7 +564,6 @@ pub async fn sqlite_execute_query(
         let col_count = columns.len();
 
         if col_count == 0 {
-            // Non-SELECT statement (but on read-only connection, so it will fail)
             return Err("Only SELECT queries are supported on read-only databases".to_string());
         }
 
@@ -509,7 +571,10 @@ pub async fn sqlite_execute_query(
             .query_map([], |row| {
                 let mut vals = Vec::with_capacity(col_count);
                 for i in 0..col_count {
-                    let val = row.get_ref(i).map(|v| v.into()).unwrap_or(rusqlite::types::Value::Null);
+                    let val = row
+                        .get_ref(i)
+                        .map(|v| v.into())
+                        .unwrap_or(rusqlite::types::Value::Null);
                     vals.push(sqlite_value_to_json(&val));
                 }
                 Ok(vals)
@@ -533,14 +598,22 @@ pub async fn sqlite_execute_query(
     .map_err(|e| e.to_string())?
 }
 
-/// Re-pull the database from the device (refresh).
+/// Re-pull the database from the device and invalidate cache.
 #[tauri::command]
 pub async fn sqlite_refresh_database(
     serial: String,
     package: String,
     db_path: String,
 ) -> Result<Vec<SqliteTableInfo>, String> {
-    // Just re-open with force=true, which re-pulls from device
+    // Invalidate the cached file so next table_rows call re-pulls
+    let key = cache_key(&serial, &package, &db_path);
+    if let Some(path) = DB_CACHE.lock().remove(&key) {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
+
+    // Re-read metadata from device (instant, no file transfer)
     sqlite_open_database(serial, package, db_path).await
 }
 
@@ -551,16 +624,127 @@ pub fn sqlite_close_database(serial: String, package: String, db_path: String) {
     let mut cache = DB_CACHE.lock();
     if let Some(path) = cache.remove(&key) {
         let _ = std::fs::remove_file(&path);
-        // Also remove -wal and -shm
-        for suffix in ["-wal", "-shm"] {
-            let wal = path.with_extension(format!(
-                "{}{}",
-                path.extension()
-                    .map(|e| e.to_string_lossy().to_string())
-                    .unwrap_or_default(),
-                suffix
-            ));
-            let _ = std::fs::remove_file(&wal);
-        }
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
     }
+}
+
+/// Scan all third-party packages on the device for SQLite databases.
+/// Uses batched shell commands to avoid per-package round-trips.
+#[tauri::command]
+pub async fn sqlite_scan_all_databases(serial: String) -> Result<Vec<SqliteDbFile>, String> {
+    tokio::task::spawn_blocking(move || {
+        let mut server = get_server().lock();
+        let mut device = server
+            .get_device_by_name(&serial)
+            .map_err(|e| format!("Device not found: {e}"))?;
+
+        // Get list of third-party packages
+        let mut pm_stdout = Vec::new();
+        let _ = device.shell_command(
+            &"pm list packages -3",
+            Some(&mut pm_stdout),
+            None::<&mut dyn IoWrite>,
+        );
+        let pm_output = String::from_utf8_lossy(&pm_stdout);
+
+        let packages: Vec<String> = pm_output
+            .lines()
+            .filter_map(|l| l.strip_prefix("package:"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        log::info!("[sqlite_scan] Found {} packages", packages.len());
+
+        let mut all_dbs = Vec::new();
+        let batch_size = 50;
+
+        for chunk in packages.chunks(batch_size) {
+            let mut script_parts = Vec::new();
+            for pkg in chunk {
+                let pkg_escaped = shell_escape(pkg);
+                script_parts.push(format!(
+                    "echo 'PKG_MARKER:{}'; run-as '{}' ls -la '/data/data/{}/databases' 2>/dev/null || true",
+                    pkg, pkg_escaped, pkg
+                ));
+            }
+            let batch_script = script_parts.join("; ");
+
+            let mut out = Vec::new();
+            let _ = device.shell_command(
+                &batch_script,
+                Some(&mut out),
+                None::<&mut dyn IoWrite>,
+            );
+            let batch_output = String::from_utf8_lossy(&out);
+
+            let mut current_pkg = String::new();
+            for line in batch_output.lines() {
+                let line = line.trim();
+                if let Some(pkg) = line.strip_prefix("PKG_MARKER:") {
+                    current_pkg = pkg.trim().to_string();
+                    continue;
+                }
+
+                if current_pkg.is_empty()
+                    || line.is_empty()
+                    || line.starts_with("total")
+                    || line.starts_with("d")
+                {
+                    continue;
+                }
+                if line.ends_with("-wal")
+                    || line.ends_with("-shm")
+                    || line.ends_with("-journal")
+                {
+                    continue;
+                }
+                if line.contains("not debuggable")
+                    || line.contains("Unknown package")
+                    || line.contains("Permission denied")
+                {
+                    continue;
+                }
+
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() < 7 {
+                    continue;
+                }
+
+                let first_char = parts[0].chars().next().unwrap_or(' ');
+                if !matches!(first_char, '-' | 'l') {
+                    continue;
+                }
+
+                let size: u64 = parts[4].parse().unwrap_or(0);
+                let name_start =
+                    if parts[5].len() == 10 && parts[5].as_bytes().get(4) == Some(&b'-') {
+                        7usize
+                    } else {
+                        8usize
+                    };
+
+                if name_start >= parts.len() {
+                    continue;
+                }
+
+                let name = parts[name_start..].join(" ");
+                if name == "." || name == ".." {
+                    continue;
+                }
+
+                let db_dir = format!("/data/data/{}/databases", current_pkg);
+                let path = format!("{db_dir}/{name}");
+                all_dbs.push(SqliteDbFile { name, path, size });
+            }
+        }
+
+        log::info!("[sqlite_scan] Found {} databases total", all_dbs.len());
+
+        all_dbs.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(all_dbs)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

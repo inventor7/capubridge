@@ -1,22 +1,5 @@
 mod commands;
 
-// On Windows, suppress RunDLL error dialogs caused by third-party DLL injection
-// tools (e.g. monitoring/hooking software) that fail to initialize inside
-// console child processes like adb.exe. Calling SetErrorMode at startup
-// propagates the flag to all child processes spawned by this process.
-#[cfg(target_os = "windows")]
-fn suppress_error_dialogs() {
-    extern "system" {
-        fn SetErrorMode(u_mode: u32) -> u32;
-    }
-    const SEM_FAILCRITICALERRORS: u32 = 0x0001;
-    const SEM_NOGPFAULTERRORBOX: u32 = 0x0002;
-    const SEM_NOOPENFILEERRORBOX: u32 = 0x8000;
-    unsafe {
-        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-    }
-}
-
 use commands::adb::{
     adb_cancel_list_packages,
     adb_connect_device, adb_disconnect_device, adb_get_app_icon, adb_get_device_info,
@@ -37,14 +20,13 @@ use commands::mirror::{
 use commands::perf::{adb_perf_start, adb_perf_stop};
 use commands::port_forward::{adb_fetch_json_targets, adb_forward_cdp, adb_remove_forward};
 use commands::sqlite::{
-    sqlite_close_database, sqlite_execute_query, sqlite_list_databases, sqlite_open_database,
-    sqlite_refresh_database, sqlite_table_columns, sqlite_table_indexes, sqlite_table_rows,
+    sqlite_close_database, sqlite_execute_query, sqlite_list_databases,
+    sqlite_open_database, sqlite_refresh_database, sqlite_scan_all_databases,
+    sqlite_table_columns, sqlite_table_indexes, sqlite_table_rows,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(target_os = "windows")]
-    suppress_error_dialogs();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -57,6 +39,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -109,6 +92,7 @@ pub fn run() {
             adb_open_file,
             adb_delete_file,
             sqlite_list_databases,
+            sqlite_scan_all_databases,
             sqlite_open_database,
             sqlite_refresh_database,
             sqlite_close_database,
