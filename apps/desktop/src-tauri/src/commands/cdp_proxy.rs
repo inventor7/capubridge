@@ -45,7 +45,10 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .await
         .map_err(|e| format!("Failed to bind proxy port: {}", e))?;
-    let local_port = listener.local_addr().unwrap().port();
+    let local_port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to read proxy local address: {}", e))?
+        .port();
 
     let cdp_url = ws_url.clone();
     let join_handle = tokio::spawn(async move {
@@ -70,10 +73,13 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
                         };
 
                         // Build request to CDP — manually construct to avoid Origin header
-                        let mut request = cdp_url.into_client_request().unwrap_or_else(|e| {
-                            log::error!("[cdp_proxy] Invalid CDP URL: {}", e);
-                            panic!("Invalid CDP URL");
-                        });
+                        let mut request = match cdp_url.into_client_request() {
+                            Ok(request) => request,
+                            Err(e) => {
+                                log::error!("[cdp_proxy] Invalid CDP URL: {}", e);
+                                return;
+                            }
+                        };
 
                         // Remove Origin header — this is what causes 403 on Android CDP
                         request.headers_mut().remove("Origin");
