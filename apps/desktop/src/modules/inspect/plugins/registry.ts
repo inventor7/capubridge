@@ -12,7 +12,14 @@ export function getInspectPlugins() {
   return plugins;
 }
 
-/** Detect which plugins apply to the current target */
+export function findInspectPluginById(id: string) {
+  return plugins.value.find((plugin) => plugin.id === id) ?? null;
+}
+
+export function findInspectPluginByRouteSegment(routeSegment: string) {
+  return plugins.value.find((plugin) => plugin.routeSegment === routeSegment) ?? null;
+}
+
 export async function detectPlugins(
   evaluate: (expr: string) => Promise<unknown>,
 ): Promise<InspectPlugin[]> {

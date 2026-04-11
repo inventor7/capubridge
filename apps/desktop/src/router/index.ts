@@ -181,6 +181,11 @@ const routes: RouteRecordRaw[] = [
         name: "inspect-elements",
         component: () => import("@/modules/inspect/ElementsInspector.vue"),
       },
+      {
+        path: ":pluginId",
+        name: "inspect-plugin",
+        component: () => import("@/modules/inspect/InspectPluginRoute.vue"),
+      },
     ],
   },
 

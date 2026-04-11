@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import type { Component } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useInspectPlugins } from "@/modules/inspect/useInspectPlugins";
 import {
   Smartphone,
   FileText,
@@ -29,6 +31,7 @@ import {
 
 const route = useRoute();
 const router = useRouter();
+const inspectPlugins = useInspectPlugins();
 
 const iconMap: Record<string, typeof Smartphone> = {
   "devices-overview": Smartphone,
@@ -63,12 +66,45 @@ const iconMap: Record<string, typeof Smartphone> = {
   "inspect-elements": Crosshair,
 };
 
+type SubTab = {
+  name: string;
+  label: string;
+  path: string;
+  icon: Component | null;
+};
+
+const inspectSubTabs = computed<SubTab[]>(() => {
+  const tabs: SubTab[] = [
+    {
+      name: "inspect-elements",
+      label: "Elements",
+      path: "/inspect/elements",
+      icon: iconMap["inspect-elements"] ?? null,
+    },
+  ];
+
+  inspectPlugins.plugins.value.forEach((plugin) => {
+    tabs.push({
+      name: plugin.routeName,
+      label: plugin.name,
+      path: `/inspect/${plugin.routeSegment}`,
+      icon: plugin.icon,
+    });
+  });
+
+  return tabs;
+});
+
 const subTabs = computed(() => {
   const parentRoute = route.matched[0];
   if (!parentRoute?.children) return [];
+  if (parentRoute.path === "/inspect") return inspectSubTabs.value;
 
   return parentRoute.children
-    .filter((r) => r.path && !r.path.startsWith(":") && r.name)
+    .filter((r) => {
+      if (!r.path || r.path.startsWith(":") || !r.name) return false;
+      return true;
+    })
     .map((r) => {
       const parentPath = parentRoute.path.replace(/\/$/, "");
       const childPath = r.path.replace(/^\//, "").split("/")[0];
