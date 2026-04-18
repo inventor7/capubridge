@@ -7,6 +7,7 @@ export interface MirrorSettings {
   fps: 5 | 10 | 15 | 30;
   recordQuality: "720p" | "1080p" | "1440p";
   recordBitrate: 4 | 8 | 16 | 20;
+  chromeViewportMode: "phone" | "desktop";
 }
 
 export const useMirrorStore = defineStore("mirror", () => {
@@ -25,6 +26,7 @@ export const useMirrorStore = defineStore("mirror", () => {
     fps: 10,
     recordQuality: "1080p",
     recordBitrate: 8,
+    chromeViewportMode: "phone",
   });
 
   const aspectRatio = computed(() =>

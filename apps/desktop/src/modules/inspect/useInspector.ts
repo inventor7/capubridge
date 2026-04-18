@@ -102,9 +102,12 @@ export function useInspector() {
     const sourceHeight = mirrorStore.deviceHeight || metrics.height;
     const normalizedX = Math.max(0, Math.min(1, x / sourceWidth));
     const normalizedY = Math.max(0, Math.min(1, y / sourceHeight));
+    const isChromeTarget = resolveSelectedTarget()?.source === "chrome";
+    const offsetX = isChromeTarget ? 0 : metrics.offsetX;
+    const offsetY = isChromeTarget ? 0 : metrics.offsetY;
     return {
-      x: Math.round(metrics.offsetX + normalizedX * (metrics.width - 1)),
-      y: Math.round(metrics.offsetY + normalizedY * (metrics.height - 1)),
+      x: Math.round(offsetX + normalizedX * (metrics.width - 1)),
+      y: Math.round(offsetY + normalizedY * (metrics.height - 1)),
     };
   }
 

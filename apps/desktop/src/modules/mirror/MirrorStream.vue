@@ -37,13 +37,32 @@ const aspectRatio = computed(() =>
 function getDeviceCoords(clientX: number, clientY: number) {
   if (!containerRef.value) return { x: 0, y: 0 };
   const rect = containerRef.value.getBoundingClientRect();
-  const deviceWidth = props.deviceWidth || 1080;
-  const deviceHeight = props.deviceHeight || 1920;
-  const scaleX = deviceWidth / rect.width;
-  const scaleY = deviceHeight / rect.height;
+  const streamWidth = canvasRef.value?.width || props.deviceWidth || 1080;
+  const streamHeight = canvasRef.value?.height || props.deviceHeight || 1920;
+  const streamAspect = streamWidth / streamHeight;
+  const containerAspect = rect.width / rect.height;
+  let contentLeft = rect.left;
+  let contentTop = rect.top;
+  let contentWidth = rect.width;
+  let contentHeight = rect.height;
+
+  if (containerAspect > streamAspect) {
+    contentHeight = rect.height;
+    contentWidth = contentHeight * streamAspect;
+    contentLeft = rect.left + (rect.width - contentWidth) / 2;
+  } else {
+    contentWidth = rect.width;
+    contentHeight = contentWidth / streamAspect;
+    contentTop = rect.top + (rect.height - contentHeight) / 2;
+  }
+
+  const clampedX = Math.min(contentLeft + contentWidth - 1, Math.max(contentLeft, clientX));
+  const clampedY = Math.min(contentTop + contentHeight - 1, Math.max(contentTop, clientY));
+  const scaleX = streamWidth / contentWidth;
+  const scaleY = streamHeight / contentHeight;
   return {
-    x: Math.min(deviceWidth - 1, Math.max(0, Math.round((clientX - rect.left) * scaleX))),
-    y: Math.min(deviceHeight - 1, Math.max(0, Math.round((clientY - rect.top) * scaleY))),
+    x: Math.min(streamWidth - 1, Math.max(0, Math.round((clampedX - contentLeft) * scaleX))),
+    y: Math.min(streamHeight - 1, Math.max(0, Math.round((clampedY - contentTop) * scaleY))),
   };
 }
 

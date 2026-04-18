@@ -21,6 +21,7 @@ const props = defineProps<{
   isDetached: boolean;
   isStreaming: boolean;
   settingsOpen: boolean;
+  androidMode: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -68,6 +69,7 @@ const emit = defineEmits<{
 
     <!-- Record -->
     <button
+      v-if="androidMode"
       class="w-6 h-6 flex items-center justify-center rounded transition-colors"
       :class="
         isRecording
@@ -102,6 +104,7 @@ const emit = defineEmits<{
 
     <!-- Native scrcpy -->
     <button
+      v-if="androidMode"
       class="h-6 min-w-8 px-1 flex items-center justify-center rounded text-[10px] font-semibold tracking-wide text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors"
       title="Open native scrcpy window (high performance)"
       @click="emit('launchScrcpy')"

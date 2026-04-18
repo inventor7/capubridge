@@ -1,8 +1,12 @@
-import { onUnmounted, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { toast } from "vue-sonner";
+import { useCDP } from "@/composables/useCDP";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useMirrorStore } from "@/stores/mirror.store";
+import { useSourceStore } from "@/stores/source.store";
+import type { CDPTarget } from "@/types/cdp.types";
+import type { CDPClient } from "utils";
 
 export const AndroidKey = {
   HOME: 3,
@@ -49,14 +53,32 @@ interface TouchEventRequest {
   enqueuedAt: number;
 }
 
+interface ScreencastFrameMetadata {
+  deviceWidth: number;
+  deviceHeight: number;
+}
+
+interface RawScreencastFrameEvent {
+  data?: unknown;
+  metadata?: {
+    deviceWidth?: unknown;
+    deviceHeight?: unknown;
+  };
+  sessionId?: unknown;
+}
+
 export function useMirrorStream() {
   const mirrorStore = useMirrorStore();
   const devicesStore = useDevicesStore();
+  const sourceStore = useSourceStore();
+  const { activeClient, connectToTarget, targetsStore, connectionStore } = useCDP();
 
   const useScrcpyCanvas = ref(false);
   const isConnected = ref(false);
   const error = ref<string | null>(null);
   const canvasElement = ref<HTMLCanvasElement | null>(null);
+  const streamSource = ref<"adb" | "chrome" | null>(null);
+  const isAndroidStream = computed(() => streamSource.value === "adb");
 
   let decoder: VideoDecoder | null = null;
   let pendingVideoFrame: VideoFrame | null = null;
@@ -70,6 +92,12 @@ export function useMirrorStream() {
   let touchCoalesced = 0;
   let touchInvokeMsTotal = 0;
   let touchQueueDelayMsTotal = 0;
+  let chromeClient: CDPClient | null = null;
+  let chromeFrameCleanup: (() => void) | null = null;
+  let pendingChromeFrame: { data: string; metadata: ScreencastFrameMetadata } | null = null;
+  let chromeDrawInFlight = false;
+  let pointerDown = false;
+  let chromePollTimer: ReturnType<typeof setInterval> | null = null;
 
   function b64ToBytes(b64: string): Uint8Array {
     const binary = atob(b64);
@@ -78,6 +106,12 @@ export function useMirrorStream() {
       bytes[i] = binary.charCodeAt(i);
     }
     return bytes;
+  }
+
+  function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    const buffer = new Uint8Array(bytes.byteLength);
+    buffer.set(bytes);
+    return buffer.buffer;
   }
 
   function clearStartupTimeout() {
@@ -94,20 +128,6 @@ export function useMirrorStream() {
     touchQueueDelayMsTotal = 0;
   }
 
-  function logTouchStatsIfNeeded() {
-    if (!import.meta.env.DEV) return;
-    const elapsed = performance.now() - touchStatsWindowStartedAt;
-    if (elapsed < 1000 || touchSent === 0) return;
-    console.debug("[mirror-input]", {
-      sentPerSec: Number(((touchSent * 1000) / elapsed).toFixed(1)),
-      coalescedMoves: touchCoalesced,
-      avgInvokeMs: Number((touchInvokeMsTotal / touchSent).toFixed(2)),
-      avgQueueDelayMs: Number((touchQueueDelayMsTotal / touchSent).toFixed(2)),
-      queued: touchQueue.length,
-    });
-    resetTouchStats();
-  }
-
   function cleanupScrcpyDecoder() {
     clearStartupTimeout();
     if (pendingVideoFrame) {
@@ -119,6 +139,32 @@ export function useMirrorStream() {
       decoder.close();
     }
     decoder = null;
+  }
+
+  function cleanupChromeFrameQueue() {
+    pendingChromeFrame = null;
+    chromeDrawInFlight = false;
+  }
+
+  function cleanupChromeListeners() {
+    if (chromeFrameCleanup) {
+      chromeFrameCleanup();
+      chromeFrameCleanup = null;
+    }
+    chromeClient = null;
+  }
+
+  function cleanupChromePolling() {
+    if (!chromePollTimer) return;
+    clearInterval(chromePollTimer);
+    chromePollTimer = null;
+  }
+
+  async function stopChromeScreencast() {
+    if (!chromeClient) return;
+    try {
+      await chromeClient.send("Page.stopScreencast");
+    } catch {}
   }
 
   function drawVideoFrame(frame: VideoFrame) {
@@ -159,44 +205,261 @@ export function useMirrorStream() {
     });
   }
 
+  async function drawChromeFrameData(
+    data: string,
+    metadata: ScreencastFrameMetadata,
+    activeSessionId: number,
+  ) {
+    const canvas = canvasElement.value;
+    if (!canvas) return;
+    if (activeSessionId !== sessionId) return;
+
+    const frameWidth = Math.max(1, Math.round(metadata.deviceWidth));
+    const frameHeight = Math.max(1, Math.round(metadata.deviceHeight));
+    if (canvas.width !== frameWidth || canvas.height !== frameHeight) {
+      canvas.width = frameWidth;
+      canvas.height = frameHeight;
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const blob = new Blob([bytesToArrayBuffer(b64ToBytes(data))], { type: "image/jpeg" });
+
+    if (typeof createImageBitmap === "function") {
+      try {
+        const bitmap = await createImageBitmap(blob);
+        if (activeSessionId !== sessionId) {
+          bitmap.close();
+          return;
+        }
+        ctx.drawImage(bitmap, 0, 0, frameWidth, frameHeight);
+        bitmap.close();
+        return;
+      } catch {}
+    }
+
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const nextImage = new Image();
+        nextImage.onload = () => resolve(nextImage);
+        nextImage.onerror = () => reject(new Error("Failed to decode screencast frame"));
+        nextImage.src = url;
+      });
+      if (activeSessionId !== sessionId) return;
+      ctx.drawImage(image, 0, 0, frameWidth, frameHeight);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function pumpChromeFrames(activeSessionId: number) {
+    while (activeSessionId === sessionId && pendingChromeFrame) {
+      const frame = pendingChromeFrame;
+      pendingChromeFrame = null;
+      mirrorStore.setDeviceSize(frame.metadata.deviceWidth, frame.metadata.deviceHeight);
+      try {
+        await drawChromeFrameData(frame.data, frame.metadata, activeSessionId);
+      } catch (drawErr) {
+        await failChrome(`frame render failed: ${String(drawErr)}`, activeSessionId);
+        break;
+      }
+      clearStartupTimeout();
+    }
+    chromeDrawInFlight = false;
+    if (activeSessionId === sessionId && pendingChromeFrame) {
+      chromeDrawInFlight = true;
+      void pumpChromeFrames(activeSessionId);
+    }
+  }
+
+  function queueChromeFrame(
+    data: string,
+    metadata: ScreencastFrameMetadata,
+    activeSessionId: number,
+  ) {
+    pendingChromeFrame = { data, metadata };
+    if (chromeDrawInFlight) return;
+    chromeDrawInFlight = true;
+    void pumpChromeFrames(activeSessionId);
+  }
+
+  function parseScreencastMetadata(
+    raw: RawScreencastFrameEvent["metadata"],
+  ): ScreencastFrameMetadata {
+    const fallbackWidth = mirrorStore.deviceWidth || 1080;
+    const fallbackHeight = mirrorStore.deviceHeight || 1920;
+    const width = Number(raw?.deviceWidth);
+    const height = Number(raw?.deviceHeight);
+    return {
+      deviceWidth: Number.isFinite(width) && width > 0 ? width : fallbackWidth,
+      deviceHeight: Number.isFinite(height) && height > 0 ? height : fallbackHeight,
+    };
+  }
+
+  function resolvePreferredChromeTarget(): CDPTarget | null {
+    const selectedTarget = targetsStore.selectedTarget;
+    if (selectedTarget) {
+      if (selectedTarget.source !== "chrome") return null;
+      if (selectedTarget.type === "page") return selectedTarget;
+      return selectedTarget;
+    }
+
+    const firstChromePage = targetsStore.targets.find(
+      (target) => target.source === "chrome" && target.type === "page",
+    );
+    if (firstChromePage) return firstChromePage;
+
+    return targetsStore.targets.find((target) => target.source === "chrome") ?? null;
+  }
+
+  function resolveAdbSerial(): string | null {
+    const selectedDevice = devicesStore.selectedDevice;
+    if (selectedDevice?.status === "online") return selectedDevice.serial;
+
+    const target = targetsStore.selectedTarget;
+    if (target?.source === "adb" && target.deviceSerial) return target.deviceSerial;
+    return null;
+  }
+
+  function resolvePreferredSource(): "adb" | "chrome" | null {
+    const selectedTarget = targetsStore.selectedTarget;
+    const serial = resolveAdbSerial();
+    if (serial && (!selectedTarget || selectedTarget.source === "adb")) {
+      return "adb";
+    }
+    if (resolvePreferredChromeTarget()) return "chrome";
+    if (serial) return "adb";
+    return null;
+  }
+
+  function isChromePhoneMode() {
+    return mirrorStore.settings.chromeViewportMode === "phone";
+  }
+
+  async function ensureChromeClient(target: CDPTarget): Promise<CDPClient> {
+    const active = activeClient.value;
+    if (active && connectionStore.activeConnection?.targetId === target.id) {
+      return active;
+    }
+    return connectToTarget(target);
+  }
+
+  async function waitForCanvas(timeoutMs: number) {
+    const startedAt = performance.now();
+    while (!canvasElement.value && performance.now() - startedAt < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    }
+    return canvasElement.value;
+  }
+
+  async function readChromeViewport(client: CDPClient) {
+    try {
+      const result = await client.send<{ result: { value?: unknown } }>("Runtime.evaluate", {
+        expression: `(() => ({ width: window.innerWidth, height: window.innerHeight }))()`,
+        returnByValue: true,
+      });
+      const value = result.result.value as Record<string, unknown> | undefined;
+      const width = Number(value?.["width"]);
+      const height = Number(value?.["height"]);
+      if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+        mirrorStore.setDeviceSize(width, height);
+      }
+    } catch {}
+  }
+
+  async function applyChromeEmulation(client: CDPClient) {
+    if (isChromePhoneMode()) {
+      try {
+        await client.send("Emulation.setDeviceMetricsOverride", {
+          width: 390,
+          height: 844,
+          deviceScaleFactor: 2.75,
+          mobile: true,
+        });
+      } catch {}
+      try {
+        await client.send("Emulation.setTouchEmulationEnabled", {
+          enabled: true,
+          maxTouchPoints: 1,
+        });
+      } catch {}
+      try {
+        await client.send("Emulation.setEmitTouchEventsForMouse", {
+          enabled: true,
+          configuration: "mobile",
+        });
+      } catch {}
+    } else {
+      try {
+        await client.send("Emulation.clearDeviceMetricsOverride");
+      } catch {}
+      try {
+        await client.send("Emulation.setTouchEmulationEnabled", {
+          enabled: false,
+          maxTouchPoints: 0,
+        });
+      } catch {}
+      try {
+        await client.send("Emulation.setEmitTouchEventsForMouse", {
+          enabled: false,
+          configuration: "desktop",
+        });
+      } catch {}
+    }
+    await readChromeViewport(client);
+  }
+
+  async function applyChromeViewportMode() {
+    if (streamSource.value !== "chrome") return;
+    if (!mirrorStore.isStreaming) return;
+
+    if (!chromeClient) {
+      const target = resolvePreferredChromeTarget();
+      if (!target) return;
+      chromeClient = await ensureChromeClient(target);
+    }
+
+    await applyChromeEmulation(chromeClient);
+  }
+
+  async function activateChromeTarget(target: CDPTarget) {
+    const source = sourceStore.getChromeSource();
+    if (!source) return;
+    try {
+      await invoke("chrome_activate_target", {
+        port: source.port,
+        targetId: target.id,
+      });
+    } catch {}
+  }
+
   function setCanvasElement(el: HTMLCanvasElement | null) {
     canvasElement.value = el;
   }
 
   async function failScrcpy(serial: string, reason: string, id: number) {
     if (id !== sessionId) return;
-    if (import.meta.env.DEV) {
-      console.warn("[mirror-scrcpy] stream failed:", reason);
-    }
     clearStartupTimeout();
     try {
       await invoke("adb_mirror_scrcpy_stop", { serial });
     } catch {}
     cleanupScrcpyDecoder();
+    cleanupChromeFrameQueue();
+    cleanupChromePolling();
+    cleanupChromeListeners();
     touchQueue = [];
     touchProcessing = false;
+    pointerDown = false;
+    streamSource.value = null;
     useScrcpyCanvas.value = false;
     isConnected.value = false;
     mirrorStore.isStreaming = false;
     error.value = reason;
   }
 
-  async function startStream() {
-    const device = devicesStore.selectedDevice;
-    if (!device || device.status !== "online") return;
-
-    sessionId += 1;
-    const activeSessionId = sessionId;
-
-    error.value = null;
-    cleanupScrcpyDecoder();
-    touchQueue = [];
-    touchProcessing = false;
-    resetTouchStats();
-    useScrcpyCanvas.value = false;
-    isConnected.value = false;
-    mirrorStore.isStreaming = false;
-
+  async function startAdbStream(serial: string, activeSessionId: number) {
     const canUseWebCodecs =
       typeof window !== "undefined" &&
       typeof VideoDecoder !== "undefined" &&
@@ -226,7 +489,7 @@ export function useMirrorStream() {
             queueVideoFrame(frame);
           },
           error: (decodeErr) => {
-            void failScrcpy(device.serial, `decoder error: ${String(decodeErr)}`, activeSessionId);
+            void failScrcpy(serial, `decoder error: ${String(decodeErr)}`, activeSessionId);
           },
         });
 
@@ -243,11 +506,7 @@ export function useMirrorStream() {
             }
             if (!result.supported) {
               nextDecoder.close();
-              void failScrcpy(
-                device.serial,
-                `codec not supported: ${msg.data.codec}`,
-                activeSessionId,
-              );
+              void failScrcpy(serial, `codec not supported: ${msg.data.codec}`, activeSessionId);
               return;
             }
             nextDecoder.configure(config);
@@ -255,11 +514,7 @@ export function useMirrorStream() {
           })
           .catch((configErr) => {
             nextDecoder.close();
-            void failScrcpy(
-              device.serial,
-              `config check failed: ${String(configErr)}`,
-              activeSessionId,
-            );
+            void failScrcpy(serial, `config check failed: ${String(configErr)}`, activeSessionId);
           });
         return;
       }
@@ -274,11 +529,7 @@ export function useMirrorStream() {
           });
           decoder.decode(chunk);
         } catch (decodeErr) {
-          void failScrcpy(
-            device.serial,
-            `packet decode failed: ${String(decodeErr)}`,
-            activeSessionId,
-          );
+          void failScrcpy(serial, `packet decode failed: ${String(decodeErr)}`, activeSessionId);
         }
         return;
       }
@@ -301,7 +552,7 @@ export function useMirrorStream() {
         videoCodec: "h264",
       };
       const [width, height] = await invoke<[number, number]>("adb_mirror_scrcpy_start", {
-        serial: device.serial,
+        serial,
         settings: streamSettings,
         onFrame: channel,
       });
@@ -316,7 +567,7 @@ export function useMirrorStream() {
       startupTimeout = setTimeout(() => {
         if (!firstFrameSeen) {
           void failScrcpy(
-            device.serial,
+            serial,
             "startup timeout waiting for first decoded frame",
             activeSessionId,
           );
@@ -329,27 +580,252 @@ export function useMirrorStream() {
     }
   }
 
-  async function stopStream() {
-    sessionId += 1;
-    const device = devicesStore.selectedDevice;
-    if (device) {
-      try {
-        await invoke("adb_mirror_scrcpy_stop", { serial: device.serial });
-      } catch {}
-    }
-    cleanupScrcpyDecoder();
+  async function failChrome(reason: string, activeSessionId: number) {
+    if (activeSessionId !== sessionId) return;
+    clearStartupTimeout();
+    await stopChromeScreencast();
+    cleanupChromeListeners();
+    cleanupChromeFrameQueue();
+    cleanupChromePolling();
     touchQueue = [];
     touchProcessing = false;
+    pointerDown = false;
+    streamSource.value = null;
     useScrcpyCanvas.value = false;
     isConnected.value = false;
     mirrorStore.isStreaming = false;
+    error.value = reason;
+  }
+
+  async function startChromeStream(target: CDPTarget, activeSessionId: number) {
+    try {
+      await waitForCanvas(650);
+      const client = await ensureChromeClient(target);
+      if (activeSessionId !== sessionId) return;
+
+      await activateChromeTarget(target);
+
+      chromeClient = client;
+      await client.send("Page.enable");
+      await applyChromeEmulation(client);
+
+      let firstFrameSeen = false;
+      let wakeAttempted = false;
+
+      const cleanupFrame = client.on("Page.screencastFrame", (params: unknown) => {
+        if (activeSessionId !== sessionId) return;
+        const payload = params as RawScreencastFrameEvent;
+        const session = Number(payload.sessionId);
+        const data = typeof payload.data === "string" ? payload.data : null;
+        if (Number.isFinite(session) && session >= 0) {
+          void client.send("Page.screencastFrameAck", { sessionId: session }).catch(() => {});
+        }
+        if (!data) return;
+        if (!firstFrameSeen) {
+          firstFrameSeen = true;
+          clearStartupTimeout();
+        }
+        queueChromeFrame(data, parseScreencastMetadata(payload.metadata), activeSessionId);
+      });
+
+      chromeFrameCleanup = cleanupFrame;
+
+      const maxSize = mirrorStore.settings.recordQuality === "720p" ? 1280 : 1920;
+      const everyNthFrame = Math.max(1, Math.round(60 / Math.max(1, mirrorStore.settings.fps)));
+
+      await client.send("Page.startScreencast", {
+        format: "jpeg",
+        quality: 80,
+        maxWidth: maxSize,
+        maxHeight: maxSize,
+        everyNthFrame,
+      });
+
+      if (activeSessionId !== sessionId) return;
+
+      useScrcpyCanvas.value = true;
+      isConnected.value = true;
+      mirrorStore.isStreaming = true;
+
+      startupTimeout = setTimeout(() => {
+        if (activeSessionId !== sessionId || firstFrameSeen) return;
+        if (!wakeAttempted) {
+          wakeAttempted = true;
+          void activateChromeTarget(target);
+          startupTimeout = setTimeout(() => {
+            if (activeSessionId !== sessionId || firstFrameSeen) return;
+            void startChromePollingFallback(target, activeSessionId, "no frames from screencast");
+          }, 1200);
+          return;
+        }
+        void startChromePollingFallback(target, activeSessionId, "no frames from screencast");
+      }, 1400);
+    } catch (startErr) {
+      if (activeSessionId !== sessionId) return;
+      await startChromePollingFallback(target, activeSessionId, startErr);
+    }
+  }
+
+  async function startChromePollingFallback(
+    target: CDPTarget,
+    activeSessionId: number,
+    startErr: unknown,
+  ) {
+    try {
+      cleanupChromePolling();
+      await stopChromeScreencast();
+      cleanupChromeListeners();
+      await waitForCanvas(650);
+      const client = await ensureChromeClient(target);
+      if (activeSessionId !== sessionId) return;
+      await activateChromeTarget(target);
+      chromeClient = client;
+      await client.send("Page.enable");
+      await applyChromeEmulation(client);
+      const intervalMs = Math.max(50, Math.round(1000 / Math.max(1, mirrorStore.settings.fps)));
+
+      let firstFrameSeen = false;
+      chromePollTimer = setInterval(() => {
+        if (activeSessionId !== sessionId || !chromeClient) return;
+        void chromeClient
+          .send<{ data?: unknown }>("Page.captureScreenshot", {
+            format: "jpeg",
+            quality: 78,
+            fromSurface: true,
+          })
+          .then((result) => {
+            if (activeSessionId !== sessionId) return;
+            const data = typeof result.data === "string" ? result.data : null;
+            if (!data) return;
+            const metadata: ScreencastFrameMetadata = {
+              deviceWidth: mirrorStore.deviceWidth || 1080,
+              deviceHeight: mirrorStore.deviceHeight || 1920,
+            };
+            if (!firstFrameSeen) {
+              firstFrameSeen = true;
+              clearStartupTimeout();
+            }
+            queueChromeFrame(data, metadata, activeSessionId);
+          })
+          .catch(() => {});
+      }, intervalMs);
+
+      useScrcpyCanvas.value = true;
+      isConnected.value = true;
+      mirrorStore.isStreaming = true;
+
+      startupTimeout = setTimeout(() => {
+        void failChrome("startup timeout waiting for fallback screenshot frame", activeSessionId);
+      }, 2600);
+    } catch (fallbackErr) {
+      if (activeSessionId !== sessionId) return;
+      await failChrome(String(fallbackErr), activeSessionId);
+      toast.error("Mirror failed to start", {
+        description: `${String(startErr)} | fallback: ${String(fallbackErr)}`,
+      });
+    }
+  }
+
+  async function startStream() {
+    sessionId += 1;
+    const activeSessionId = sessionId;
+
+    error.value = null;
+    cleanupScrcpyDecoder();
+    cleanupChromeFrameQueue();
+    cleanupChromePolling();
+    cleanupChromeListeners();
+    touchQueue = [];
+    touchProcessing = false;
+    pointerDown = false;
+    resetTouchStats();
+    useScrcpyCanvas.value = false;
+    isConnected.value = false;
+    mirrorStore.isStreaming = false;
+    streamSource.value = null;
+
+    const preferredSource = resolvePreferredSource();
+    if (!preferredSource) {
+      const msg = "Select target or online Android device before starting mirror.";
+      error.value = msg;
+      toast.error("Mirror unavailable", { description: msg });
+      return;
+    }
+
+    streamSource.value = preferredSource;
+    if (preferredSource === "chrome") {
+      const target = resolvePreferredChromeTarget();
+      if (!target) {
+        const msg = "No Chrome target selected for mirror preview.";
+        error.value = msg;
+        toast.error("Mirror unavailable", { description: msg });
+        streamSource.value = null;
+        return;
+      }
+      await startChromeStream(target, activeSessionId);
+      return;
+    }
+
+    const serial = resolveAdbSerial();
+    if (!serial) {
+      const msg = "No online Android device selected for mirror.";
+      error.value = msg;
+      toast.error("Mirror unavailable", { description: msg });
+      streamSource.value = null;
+      return;
+    }
+    await startAdbStream(serial, activeSessionId);
+  }
+
+  async function stopStream() {
+    sessionId += 1;
+    const source = streamSource.value;
+
+    if (source === "adb") {
+      const serial = resolveAdbSerial();
+      if (serial) {
+        try {
+          await invoke("adb_mirror_scrcpy_stop", { serial });
+        } catch {}
+      }
+    }
+
+    if (source === "chrome") {
+      await stopChromeScreencast();
+    }
+
+    cleanupScrcpyDecoder();
+    cleanupChromePolling();
+    cleanupChromeListeners();
+    cleanupChromeFrameQueue();
+    touchQueue = [];
+    touchProcessing = false;
+    pointerDown = false;
+    useScrcpyCanvas.value = false;
+    isConnected.value = false;
+    mirrorStore.isStreaming = false;
+    mirrorStore.isRecording = false;
+    streamSource.value = null;
     error.value = null;
   }
 
   async function takeScreenshot(): Promise<string> {
-    const device = devicesStore.selectedDevice;
-    if (!device) throw new Error("No device selected");
-    return invoke<string>("adb_mirror_screenshot", { serial: device.serial });
+    if (streamSource.value === "chrome") {
+      const target = resolvePreferredChromeTarget();
+      if (!target) throw new Error("No Chrome target selected");
+      const client = await ensureChromeClient(target);
+      const result = await client.send<{ data?: unknown }>("Page.captureScreenshot", {
+        format: "png",
+        fromSurface: true,
+      });
+      const data = typeof result.data === "string" ? result.data : null;
+      if (!data) throw new Error("Chrome screenshot returned empty payload");
+      return data;
+    }
+
+    const serial = resolveAdbSerial();
+    if (!serial) throw new Error("No Android device selected");
+    return invoke<string>("adb_mirror_screenshot", { serial });
   }
 
   async function downloadScreenshot() {
@@ -366,19 +842,89 @@ export function useMirrorStream() {
   }
 
   async function sendKey(keycode: AndroidKeyCode) {
-    const device = devicesStore.selectedDevice;
-    if (!device) return;
+    if (streamSource.value !== "adb") return;
+    const serial = resolveAdbSerial();
+    if (!serial) return;
     try {
-      await invoke("adb_mirror_keyevent", { serial: device.serial, keycode });
+      await invoke("adb_mirror_keyevent", { serial, keycode });
     } catch (keyErr) {
       toast.error("Key event failed", { description: String(keyErr) });
     }
   }
 
+  async function dispatchTouch(action: TouchAction, x: number, y: number) {
+    if (streamSource.value === "adb") {
+      const serial = resolveAdbSerial();
+      if (!serial) return;
+      await invoke("adb_mirror_touch_event", {
+        serial,
+        action,
+        x,
+        y,
+      });
+      return;
+    }
+
+    if (streamSource.value === "chrome") {
+      const target = resolvePreferredChromeTarget();
+      if (target && action === "down") {
+        await activateChromeTarget(target);
+      }
+      if (!chromeClient) {
+        const target = resolvePreferredChromeTarget();
+        if (!target) return;
+        chromeClient = await ensureChromeClient(target);
+      }
+
+      const dispatchMouse = async () => {
+        const eventType =
+          action === "down" ? "mousePressed" : action === "up" ? "mouseReleased" : "mouseMoved";
+        if (action === "down") pointerDown = true;
+        if (action === "up") pointerDown = false;
+        await chromeClient!.send("Input.dispatchMouseEvent", {
+          type: eventType,
+          x,
+          y,
+          button: "left",
+          buttons: pointerDown || action === "down" ? 1 : 0,
+          clickCount: action === "move" ? 0 : 1,
+        });
+      };
+
+      if (isChromePhoneMode()) {
+        const touchType =
+          action === "down" ? "touchStart" : action === "up" ? "touchEnd" : "touchMove";
+        if (action === "down") pointerDown = true;
+        if (action === "up") pointerDown = false;
+        try {
+          await chromeClient.send("Input.dispatchTouchEvent", {
+            type: touchType,
+            touchPoints:
+              action === "up"
+                ? []
+                : [
+                    {
+                      id: 1,
+                      x,
+                      y,
+                      radiusX: 1,
+                      radiusY: 1,
+                      force: 1,
+                    },
+                  ],
+            modifiers: 0,
+          });
+          return;
+        } catch {}
+      }
+
+      await dispatchMouse();
+    }
+  }
+
   async function processTouchQueue() {
     if (touchProcessing) return;
-    const device = devicesStore.selectedDevice;
-    if (!device) {
+    if (!mirrorStore.isStreaming) {
       touchQueue = [];
       return;
     }
@@ -389,37 +935,23 @@ export function useMirrorStream() {
       const queuedMs = performance.now() - item.enqueuedAt;
       const invokeStartedAt = performance.now();
       try {
-        await invoke("adb_mirror_touch_event", {
-          serial: device.serial,
-          action: item.action,
-          x: item.x,
-          y: item.y,
-        });
+        await dispatchTouch(item.action, item.x, item.y);
         const invokeMs = performance.now() - invokeStartedAt;
         touchSent += 1;
         touchInvokeMsTotal += invokeMs;
         touchQueueDelayMsTotal += queuedMs;
-        if (import.meta.env.DEV && item.action !== "move") {
-        }
       } catch (touchErr) {
-        if (import.meta.env.DEV) {
-          console.warn("[mirror-input] touch send failed", {
-            action: item.action,
-            error: String(touchErr),
-          });
-        }
         if (item.action !== "move") {
           error.value = String(touchErr);
         }
       }
-      logTouchStatsIfNeeded();
+      const elapsed = performance.now() - touchStatsWindowStartedAt;
+      if (elapsed >= 1000) resetTouchStats();
     }
     touchProcessing = false;
   }
 
   function sendTouch(action: TouchAction, x: number, y: number) {
-    const device = devicesStore.selectedDevice;
-    if (!device) return;
     if (!mirrorStore.isStreaming) return;
     if (action === "move" && touchQueue.length > 0) {
       const lastIndex = touchQueue.length - 1;
@@ -445,10 +977,14 @@ export function useMirrorStream() {
   }
 
   async function startRecording() {
-    const device = devicesStore.selectedDevice;
-    if (!device) return;
+    if (streamSource.value !== "adb") {
+      toast.info("Recording available only for Android mirror stream");
+      return;
+    }
+    const serial = resolveAdbSerial();
+    if (!serial) return;
     try {
-      await invoke("adb_mirror_start_recording", { serial: device.serial });
+      await invoke("adb_mirror_start_recording", { serial });
       mirrorStore.isRecording = true;
       toast.info("Recording started");
     } catch (recordErr) {
@@ -457,15 +993,16 @@ export function useMirrorStream() {
   }
 
   async function stopRecording() {
-    const device = devicesStore.selectedDevice;
-    if (!device) return;
+    if (streamSource.value !== "adb") return;
+    const serial = resolveAdbSerial();
+    if (!serial) return;
     try {
       const { downloadDir, join } = await import("@tauri-apps/api/path");
       const dir = await downloadDir();
       const savePath = await join(dir, `capubridge_rec_${Date.now()}.mp4`);
       toast.info("Saving recording…");
       await invoke("adb_mirror_stop_recording", {
-        serial: device.serial,
+        serial,
         savePath,
       });
       mirrorStore.isRecording = false;
@@ -477,8 +1014,8 @@ export function useMirrorStream() {
   }
 
   async function launchExternalScrcpy() {
-    const device = devicesStore.selectedDevice;
-    if (!device) {
+    const serial = resolveAdbSerial();
+    if (!serial) {
       toast.error("No device selected");
       return;
     }
@@ -487,7 +1024,7 @@ export function useMirrorStream() {
       const bitRateMbps = mirrorStore.settings.recordBitrate;
       const maxFps = Math.max(30, mirrorStore.settings.fps);
       await invoke("adb_mirror_launch_scrcpy", {
-        serial: device.serial,
+        serial,
         maxSize,
         bitRateMbps,
         maxFps,
@@ -502,10 +1039,16 @@ export function useMirrorStream() {
 
   onUnmounted(() => {
     cleanupScrcpyDecoder();
+    cleanupChromeFrameQueue();
+    cleanupChromePolling();
+    void stopChromeScreencast();
+    cleanupChromeListeners();
   });
 
   return {
     useScrcpyCanvas,
+    streamSource,
+    isAndroidStream,
     isConnected,
     error,
     startStream,
@@ -517,5 +1060,6 @@ export function useMirrorStream() {
     stopRecording,
     launchExternalScrcpy,
     setCanvasElement,
+    applyChromeViewportMode,
   };
 }

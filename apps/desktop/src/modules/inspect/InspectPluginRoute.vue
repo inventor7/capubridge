@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, markRaw, ref, watch } from "vue";
 import type { Component } from "vue";
 import { useRoute } from "vue-router";
 import { RefreshCw } from "lucide-vue-next";
@@ -31,7 +31,8 @@ async function loadPluginComponent() {
   loadError.value = null;
 
   try {
-    PluginComponent.value = await plugin.value.component();
+    const component = await plugin.value.component();
+    PluginComponent.value = markRaw(component);
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : String(error);
     PluginComponent.value = null;

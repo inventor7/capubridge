@@ -6,10 +6,41 @@ const mirrorStore = useMirrorStore();
 const fpsOptions = [5, 10, 15, 30] as const;
 const qualityOptions = ["720p", "1080p", "1440p"] as const;
 const bitrateOptions = [4, 8, 16, 20] as const;
+const props = defineProps<{
+  androidMode: boolean;
+}>();
 </script>
 
 <template>
   <div class="p-3 space-y-4">
+    <div v-if="!props.androidMode">
+      <p class="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1.5">Viewport</p>
+      <div class="flex gap-1">
+        <button
+          class="flex-1 h-6 text-xs rounded transition-colors border"
+          :class="
+            mirrorStore.settings.chromeViewportMode === 'phone'
+              ? 'bg-accent border-border text-foreground'
+              : 'border-border/30 text-muted-foreground hover:text-foreground hover:bg-accent/50'
+          "
+          @click="mirrorStore.settings.chromeViewportMode = 'phone'"
+        >
+          Phone
+        </button>
+        <button
+          class="flex-1 h-6 text-xs rounded transition-colors border"
+          :class="
+            mirrorStore.settings.chromeViewportMode === 'desktop'
+              ? 'bg-accent border-border text-foreground'
+              : 'border-border/30 text-muted-foreground hover:text-foreground hover:bg-accent/50'
+          "
+          @click="mirrorStore.settings.chromeViewportMode = 'desktop'"
+        >
+          Desktop
+        </button>
+      </div>
+    </div>
+
     <!-- FPS (polling rate) -->
     <div>
       <p class="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1.5">Stream FPS</p>
@@ -31,7 +62,7 @@ const bitrateOptions = [4, 8, 16, 20] as const;
     </div>
 
     <!-- Recording quality -->
-    <div>
+    <div v-if="props.androidMode">
       <p class="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1.5">
         Record Quality
       </p>
@@ -53,7 +84,7 @@ const bitrateOptions = [4, 8, 16, 20] as const;
     </div>
 
     <!-- Bitrate -->
-    <div>
+    <div v-if="props.androidMode">
       <p class="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1.5">
         Record Bitrate (Mbps)
       </p>

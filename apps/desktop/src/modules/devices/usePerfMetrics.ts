@@ -268,7 +268,7 @@ export function usePerfMetrics() {
       isRunning.value = false;
     });
 
-    unlistenStopped = await listen<string>("perf:stopped", (e) => {
+    unlistenStopped = await listen<string>("perf:stopped", (_e) => {
       isRunning.value = false;
     });
 

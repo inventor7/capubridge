@@ -4,6 +4,7 @@ import { X, Minus } from "lucide-vue-next";
 import { useMirrorStore } from "@/stores/mirror.store";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useInspectStore } from "@/stores/inspect.store";
+import { useTargetsStore } from "@/stores/targets.store";
 import { useMirrorStream } from "./useMirrorStream";
 import MirrorStream from "./MirrorStream.vue";
 import MirrorControls from "./MirrorControls.vue";
@@ -13,8 +14,10 @@ import MirrorSettingsPanel from "./MirrorSettingsPanel.vue";
 const mirrorStore = useMirrorStore();
 const devicesStore = useDevicesStore();
 const inspectStore = useInspectStore();
+const targetsStore = useTargetsStore();
 const {
   useScrcpyCanvas,
+  isAndroidStream,
   isConnected,
   startStream,
   stopStream,
@@ -25,6 +28,7 @@ const {
   stopRecording,
   launchExternalScrcpy,
   setCanvasElement,
+  applyChromeViewportMode,
 } = useMirrorStream();
 
 const settingsOpen = ref(false);
@@ -73,11 +77,32 @@ watch(
 );
 
 watch(
+  () => targetsStore.selectedTarget?.id ?? null,
+  () => {
+    if (mirrorStore.isDetached && mirrorStore.isStreaming) {
+      void stopStream().then(() => startStream());
+    }
+  },
+);
+
+watch(
   () => mirrorStore.settings.fps,
   (next, prev) => {
     if (next === prev) return;
     if (mirrorStore.isDetached && mirrorStore.isStreaming) {
       void stopStream().then(() => startStream());
+    }
+  },
+);
+
+watch(
+  () => mirrorStore.settings.chromeViewportMode,
+  (next, prev) => {
+    if (next === prev) return;
+    if (mirrorStore.isDetached && mirrorStore.isStreaming && !isAndroidStream.value) {
+      void applyChromeViewportMode().catch(() => {
+        void stopStream().then(() => startStream());
+      });
     }
   },
 );
@@ -179,6 +204,7 @@ function toggleRecord() {
         :is-detached="true"
         :is-streaming="mirrorStore.isStreaming"
         :settings-open="settingsOpen"
+        :android-mode="isAndroidStream"
         @screenshot="downloadScreenshot"
         @toggle-record="toggleRecord"
         @toggle-laser="mirrorStore.laserMode = !mirrorStore.laserMode"
@@ -203,7 +229,7 @@ function toggleRecord() {
         class="overflow-hidden border-b border-border/30 max-h-48"
         style="-webkit-app-region: no-drag"
       >
-        <MirrorSettingsPanel />
+        <MirrorSettingsPanel :android-mode="isAndroidStream" />
       </div>
     </Transition>
 
@@ -237,7 +263,7 @@ function toggleRecord() {
 
     <!-- Device buttons -->
     <div style="-webkit-app-region: no-drag">
-      <MirrorControls @keyevent="sendKey" />
+      <MirrorControls v-if="isAndroidStream" @keyevent="sendKey" />
     </div>
 
     <!-- Recording strip -->

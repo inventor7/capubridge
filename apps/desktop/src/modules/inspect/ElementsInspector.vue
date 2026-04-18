@@ -3,6 +3,7 @@ import { onMounted } from "vue";
 import { useInspectStore } from "@/stores/inspect.store";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useMirrorStore } from "@/stores/mirror.store";
+import { useTargetsStore } from "@/stores/targets.store";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useInspector } from "./useInspector";
 import DomTree from "./DomTree.vue";
@@ -11,10 +12,13 @@ import ElementDetailPanel from "./ElementDetailPanel.vue";
 const store = useInspectStore();
 const devicesStore = useDevicesStore();
 const mirrorStore = useMirrorStore();
+const targetsStore = useTargetsStore();
 const inspector = useInspector();
 
 onMounted(() => {
-  if (devicesStore.selectedDevice?.status !== "online") return;
+  const hasAndroid = devicesStore.selectedDevice?.status === "online";
+  const hasTarget = targetsStore.selectedTarget !== null;
+  if (!hasAndroid && !hasTarget) return;
   if (!mirrorStore.isOpen) {
     mirrorStore.open();
   }
