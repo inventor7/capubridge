@@ -58,7 +58,7 @@ const expandedDirs = ref<Set<string>>(new Set(["/"]));
 const treeContents = ref<Map<string, FileEntry[]>>(new Map());
 const treeLoading = ref<Set<string>>(new Set());
 const selectedDir = ref("/");
-const filesView = ref<"list" | "grid">("list");
+const filesView = ref<"list" | "grid">("grid");
 const showHidden = ref(false);
 const selectedEntryKey = ref<string | null>(null);
 const previewOpen = ref(false);
@@ -749,6 +749,8 @@ watch(
                 <component
                   :is="expandedDirs.has(dir.path) ? FolderOpen : Folder"
                   class="h-3.5 w-3.5 shrink-0 text-amber-400/70"
+                  fill="#e0a528"
+                  strokeWidth="0"
                 />
                 <span class="truncate">{{ dir.label }}</span>
               </button>

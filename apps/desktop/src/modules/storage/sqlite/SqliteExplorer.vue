@@ -261,16 +261,6 @@ watch([dbName, tableName], async () => {
         <div class="flex h-full flex-col border-r border-border/30 min-h-0">
           <!-- Search -->
           <div class="shrink-0 border-b border-border/20 p-2">
-            <div class="mb-2 rounded-md border border-border/20 bg-surface-2/60 px-2 py-2">
-              <div
-                class="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40"
-              >
-                Target Package
-              </div>
-              <div class="mt-1 truncate font-mono text-[11px] text-foreground/80">
-                {{ selectedPackageName || "No target selected" }}
-              </div>
-            </div>
             <div
               class="flex items-center gap-2 bg-surface-3 rounded-md px-2 py-2 border border-border/30 focus-within:border-border/60 transition-colors"
             >
