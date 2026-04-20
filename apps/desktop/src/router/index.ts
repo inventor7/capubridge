@@ -16,19 +16,9 @@ const routes: RouteRecordRaw[] = [
         component: () => import("@/modules/devices/DeviceOverview.vue"),
       },
       {
-        path: "logcat",
-        name: "devices-logcat",
-        component: () => import("@/modules/devices/DeviceLogcat.vue"),
-      },
-      {
         path: "apps",
         name: "devices-apps",
         component: () => import("@/modules/devices/DeviceApps.vue"),
-      },
-      {
-        path: "webview",
-        name: "devices-webview",
-        component: () => import("@/modules/devices/DeviceWebview.vue"),
       },
       {
         path: "files",
@@ -121,8 +111,13 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/console",
     component: () => import("@/modules/console/ConsolePanel.vue"),
-    redirect: "/console/output",
+    redirect: "/console/logcat",
     children: [
+      {
+        path: "logcat",
+        name: "console-logcat",
+        component: () => import("@/modules/devices/DeviceLogcat.vue"),
+      },
       {
         path: "output",
         name: "console-output",

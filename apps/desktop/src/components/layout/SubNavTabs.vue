@@ -7,7 +7,6 @@ import {
   Smartphone,
   FileText,
   Package,
-  Monitor,
   FolderOpen,
   Gauge,
   Database,
@@ -36,9 +35,7 @@ const inspectPlugins = useInspectPlugins();
 
 const iconMap: Record<string, typeof Smartphone> = {
   "devices-overview": Smartphone,
-  "devices-logcat": FileText,
   "devices-apps": Package,
-  "devices-webview": Monitor,
   "devices-files": FolderOpen,
   "devices-performance": Gauge,
   "storage-indexeddb": HardDrive,
@@ -52,6 +49,7 @@ const iconMap: Record<string, typeof Smartphone> = {
   "network-websocket": Terminal,
   "network-throttle": Gauge,
   "network-mock": Archive,
+  "console-logcat": FileText,
   "console-output": FileText,
   "console-repl": Terminal,
   "console-exceptions": AlertTriangle,

@@ -15,6 +15,8 @@ import {
   XCircle,
   Plus,
   WifiOff,
+  Monitor,
+  Zap,
 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { useDevicesStore } from "@/stores/devices.store";
@@ -22,9 +24,11 @@ import { useSourceStore } from "@/stores/source.store";
 import { useTargetsStore } from "@/stores/targets.store";
 import { useConnectionStore } from "@/stores/connection.store";
 import { useAdb } from "@/composables/useAdb";
+import { useAppPackages } from "@/composables/useAppPackages";
 import type { CDPTarget } from "@/types/cdp.types";
 import AdbReversePopover from "@/components/layout/AdbReversePopover.vue";
 import { ChevronRight } from "lucide-vue-next";
+import AppIcon from "@/modules/devices/AppIcon.vue";
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: []; selectDevice: [serial: string] }>();
@@ -38,6 +42,7 @@ const { getDeviceOverview, tcpip, connectDevice, disconnectDevice, pairDevice } 
 type Panel = "device" | "local" | "connect";
 const activePanel = ref<Panel>("device");
 const selectedSerial = ref<string | null>(null);
+const { usePackages, getCachedPackage } = useAppPackages(selectedSerial);
 const deviceInfoCache = reactive<Record<string, Awaited<ReturnType<typeof getDeviceOverview>>>>({});
 const deviceInfoLoading = ref(false);
 const isRefreshingDevices = ref(false);
@@ -51,6 +56,9 @@ const showChromePortInput = ref(false);
 const chromeNewUrl = ref("https://");
 const openingChromeUrl = ref(false);
 const isWifiConnecting = ref(false);
+const expandedTargetPackages = ref<Set<string>>(new Set());
+
+usePackages("all");
 
 const selectedDevice = computed(
   () => devicesStore.devices.find((d) => d.serial === selectedSerial.value) ?? null,
@@ -65,9 +73,57 @@ const androidTargets = computed(() =>
 );
 const chromeTargets = computed(() => targetsStore.targets.filter((t) => t.source === "chrome"));
 const isFetchingTargets = computed(() => targetsStore.fetchingSources.size > 0);
+const groupedAndroidTargets = computed(() => {
+  const groups = new Map<string, CDPTarget[]>();
+  for (const target of androidTargets.value) {
+    const key = target.packageName?.trim() || "Unknown package";
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key)?.push(target);
+  }
+  return Array.from(groups.entries()).map(([packageName, targets]) => ({
+    packageName,
+    targets,
+  }));
+});
 
 function connStatus(id: string) {
   return connectionStore.connections.get(id)?.status ?? "disconnected";
+}
+
+function targetTypeLabel(target: CDPTarget) {
+  return target.type === "page" ? "page" : target.type;
+}
+
+function shouldCollapsePackage(packageName: string) {
+  const group = groupedAndroidTargets.value.find((entry) => entry.packageName === packageName);
+  return (group?.targets.length ?? 0) > 2;
+}
+
+function shouldShowPackageHeader(packageName: string) {
+  const group = groupedAndroidTargets.value.find((entry) => entry.packageName === packageName);
+  return (group?.targets.length ?? 0) > 1;
+}
+
+function isPackageExpanded(packageName: string) {
+  if (!shouldCollapsePackage(packageName)) {
+    return true;
+  }
+  return expandedTargetPackages.value.has(packageName);
+}
+
+function toggleTargetPackage(packageName: string) {
+  if (!shouldCollapsePackage(packageName)) {
+    return;
+  }
+  const next = new Set(expandedTargetPackages.value);
+  if (next.has(packageName)) {
+    next.delete(packageName);
+  } else {
+    next.add(packageName);
+  }
+  expandedTargetPackages.value = next;
 }
 
 function getRemoteDevtoolsUrl(target: CDPTarget, wsDebuggerUrl: string, frontendPort: number) {
@@ -471,6 +527,27 @@ watch(
     }
   },
 );
+
+watch(
+  groupedAndroidTargets,
+  (groups) => {
+    const next = new Set(
+      groups
+        .filter((group) => group.targets.length > 2)
+        .map((group) => group.packageName)
+        .filter((packageName) => expandedTargetPackages.value.has(packageName)),
+    );
+    if (next.size === 0 && groups.some((group) => group.targets.length > 2)) {
+      for (const group of groups) {
+        if (group.targets.length > 2) {
+          next.add(group.packageName);
+        }
+      }
+    }
+    expandedTargetPackages.value = next;
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -701,52 +778,125 @@ watch(
                       </button>
                     </div>
 
-                    <!-- Target list -->
-                    <div v-if="androidTargets.length" class="space-y-1">
+                    <div v-if="groupedAndroidTargets.length" class="space-y-3">
                       <div
-                        v-for="t in androidTargets"
-                        :key="t.id"
-                        @click="handleSelectTarget(t)"
-                        class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition-colors text-left group cursor-pointer"
+                        v-for="group in groupedAndroidTargets"
+                        :key="group.packageName"
                         :class="
-                          targetsStore.selectedTarget?.id === t.id
-                            ? 'bg-surface-2 border-border/35'
-                            : 'border-transparent hover:bg-surface-2/60 hover:border-border/20'
+                          shouldShowPackageHeader(group.packageName)
+                            ? 'rounded-xl border border-border/20 bg-surface-2/30 overflow-hidden'
+                            : 'space-y-2'
                         "
                       >
-                        <span
-                          class="w-1.5 h-1.5 rounded-full shrink-0"
-                          :class="
-                            connStatus(t.id) === 'connected'
-                              ? 'bg-status-success'
-                              : 'bg-muted-foreground/20'
-                          "
-                        />
-                        <div class="flex-1 min-w-0">
-                          <div class="text-[12px] text-foreground/80 truncate leading-tight">
-                            {{ t.title || "(no title)" }}
-                          </div>
-                          <div
-                            class="text-[10px] font-mono text-muted-foreground/35 truncate mt-0.5"
-                          >
-                            {{ t.url }}
-                          </div>
-                        </div>
                         <button
-                          @click="handleOpenRemoteDevtools(t, $event)"
-                          class="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-muted-foreground/50 hover:text-foreground hover:bg-surface-3 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                          :title="
-                            sourceStore.hasChromeSource
-                              ? 'Open remote DevTools'
-                              : 'Connect Local Chrome first'
+                          v-if="shouldShowPackageHeader(group.packageName)"
+                          class="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-3/40"
+                          @click="toggleTargetPackage(group.packageName)"
+                        >
+                          <template
+                            v-if="
+                              selectedSerial &&
+                              group.packageName !== 'Unknown package' &&
+                              getCachedPackage(group.packageName)
+                            "
+                          >
+                            <AppIcon
+                              :serial="selectedSerial"
+                              :package-name="group.packageName"
+                              :apk-path="getCachedPackage(group.packageName)?.apkPath ?? ''"
+                              :icon-path="getCachedPackage(group.packageName)?.iconPath"
+                              size="sm"
+                            />
+                          </template>
+                          <div
+                            v-else
+                            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info"
+                          >
+                            <Globe :size="14" />
+                          </div>
+                          <div class="min-w-0 flex-1">
+                            <div class="truncate text-[12px] font-medium text-foreground/85">
+                              {{ group.packageName }}
+                            </div>
+                            <div class="mt-0.5 text-[10px] text-muted-foreground/40">
+                              {{ group.targets.length }} targets
+                            </div>
+                          </div>
+                          <ChevronRight
+                            v-if="shouldCollapsePackage(group.packageName)"
+                            :size="12"
+                            class="shrink-0 text-muted-foreground/35 transition-transform"
+                            :class="isPackageExpanded(group.packageName) ? 'rotate-90' : ''"
+                          />
+                        </button>
+
+                        <div
+                          v-if="isPackageExpanded(group.packageName)"
+                          :class="
+                            shouldShowPackageHeader(group.packageName)
+                              ? 'space-y-2 px-2 pb-2'
+                              : 'space-y-2'
                           "
                         >
-                          <ExternalLink :size="11" />
-                        </button>
-                        <ChevronRight
-                          :size="11"
-                          class="text-muted-foreground/20 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        />
+                          <div
+                            v-for="t in group.targets"
+                            :key="t.id"
+                            @click="handleSelectTarget(t)"
+                            class="flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors group cursor-pointer"
+                            :class="
+                              targetsStore.selectedTarget?.id === t.id
+                                ? 'bg-surface-2 border-border/35'
+                                : 'bg-surface-1/40 border-border/20 hover:bg-surface-3/50'
+                            "
+                          >
+                            <template
+                              v-if="
+                                selectedSerial && t.packageName && getCachedPackage(t.packageName)
+                              "
+                            >
+                              <AppIcon
+                                :serial="selectedSerial"
+                                :package-name="t.packageName"
+                                :apk-path="getCachedPackage(t.packageName)?.apkPath ?? ''"
+                                :icon-path="getCachedPackage(t.packageName)?.iconPath"
+                                size="sm"
+                              />
+                            </template>
+                            <div
+                              v-else
+                              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info"
+                            >
+                              <Globe :size="14" />
+                            </div>
+                            <div class="min-w-0 flex-1">
+                              <div class="truncate text-sm font-medium text-foreground">
+                                {{ t.title || "(no title)" }}
+                              </div>
+                              <div
+                                class="mt-0.5 truncate text-xs font-mono text-muted-foreground/50"
+                              >
+                                {{ t.url }}
+                              </div>
+                            </div>
+                            <span
+                              class="shrink-0 rounded border border-border/20 bg-surface-3 px-2 py-0.5 text-xs text-muted-foreground/50"
+                            >
+                              {{ targetTypeLabel(t) }}
+                            </span>
+                            <button
+                              @click="handleOpenRemoteDevtools(t, $event)"
+                              class="flex shrink-0 items-center gap-2 rounded-md border border-border/30 px-3 py-1.5 text-xs text-foreground/70 transition-all hover:bg-surface-3 hover:text-foreground opacity-0 group-hover:opacity-100"
+                              :title="
+                                sourceStore.hasChromeSource
+                                  ? 'Open remote DevTools'
+                                  : 'Connect Local Chrome first'
+                              "
+                            >
+                              <ExternalLink :size="13" />
+                              Inspect
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
