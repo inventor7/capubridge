@@ -1,6 +1,6 @@
-use adb_client::ADBDeviceExt;
 use crate::commands::adb::get_server;
 use crate::commands::files::shell_escape;
+use adb_client::ADBDeviceExt;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -134,8 +134,7 @@ fn pull_db_to_temp(
         .to_string();
     let filename = format!("{}_{}_{}", serial, package, safe_name);
     let local_path = temp_dir().join(filename);
-    std::fs::write(&local_path, &bytes)
-        .map_err(|e| format!("Failed to write temp DB: {e}"))?;
+    std::fs::write(&local_path, &bytes).map_err(|e| format!("Failed to write temp DB: {e}"))?;
 
     // Best-effort: pull WAL and SHM
     for suffix in ["-wal", "-shm"] {
@@ -199,14 +198,16 @@ fn sqlite_value_to_json(val: &rusqlite::types::Value) -> Value {
     match val {
         rusqlite::types::Value::Null => Value::Null,
         rusqlite::types::Value::Integer(i) => Value::Number((*i).into()),
-        rusqlite::types::Value::Real(f) => {
-            serde_json::Number::from_f64(*f)
-                .map(Value::Number)
-                .unwrap_or(Value::Null)
-        }
+        rusqlite::types::Value::Real(f) => serde_json::Number::from_f64(*f)
+            .map(Value::Number)
+            .unwrap_or(Value::Null),
         rusqlite::types::Value::Text(s) => Value::String(s.clone()),
         rusqlite::types::Value::Blob(b) => {
-            let hex: String = b.iter().take(64).map(|byte| format!("{byte:02x}")).collect();
+            let hex: String = b
+                .iter()
+                .take(64)
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
             let suffix = if b.len() > 64 { "…" } else { "" };
             Value::String(format!("[BLOB {len}B] {hex}{suffix}", len = b.len()))
         }
@@ -254,12 +255,11 @@ pub async fn sqlite_list_databases(
             }
 
             let size: u64 = parts[4].parse().unwrap_or(0);
-            let name_start =
-                if parts[5].len() == 10 && parts[5].as_bytes().get(4) == Some(&b'-') {
-                    7usize
-                } else {
-                    8usize
-                };
+            let name_start = if parts[5].len() == 10 && parts[5].as_bytes().get(4) == Some(&b'-') {
+                7usize
+            } else {
+                8usize
+            };
 
             if name_start >= parts.len() {
                 continue;
@@ -291,7 +291,9 @@ pub async fn sqlite_open_database(
         let start = std::time::Instant::now();
         log::info!(
             "[sqlite_open_database] Pulling {}::{}::{} to temp",
-            serial, package, db_path
+            serial,
+            package,
+            db_path
         );
         let local = pull_db_to_temp(&serial, &package, &db_path, true)?;
         let pull_ms = start.elapsed().as_millis();
@@ -340,7 +342,11 @@ pub async fn sqlite_open_database(
             })
             .collect();
 
-        log::info!("[sqlite_open_database] Found {} tables in {}", tables.len(), db_path);
+        log::info!(
+            "[sqlite_open_database] Found {} tables in {}",
+            tables.len(),
+            db_path
+        );
         Ok(tables)
     })
     .await
@@ -430,9 +436,8 @@ pub async fn sqlite_table_indexes(
 
             // Get index columns
             let info_sql = format!("PRAGMA index_info(\"{}\");", name.replace('"', "\"\""));
-            let info_output =
-                run_sqlite3_on_device(&mut device, &package, &db_path, &info_sql)
-                    .unwrap_or_default();
+            let info_output = run_sqlite3_on_device(&mut device, &package, &db_path, &info_sql)
+                .unwrap_or_default();
 
             let columns: Vec<String> = info_output
                 .lines()
@@ -498,9 +503,8 @@ pub async fn sqlite_table_rows(
             None => String::new(),
         };
 
-        let sql = format!(
-            "SELECT * FROM \"{safe_table}\"{order_clause} LIMIT {limit} OFFSET {offset}"
-        );
+        let sql =
+            format!("SELECT * FROM \"{safe_table}\"{order_clause} LIMIT {limit} OFFSET {offset}");
 
         let start = std::time::Instant::now();
         let mut stmt = conn

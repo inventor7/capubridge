@@ -276,7 +276,9 @@ fn virtual_data_local_entries() -> Vec<FileEntry> {
     vec![virtual_entry("tmp".to_string(), "dir")]
 }
 
-fn virtual_data_data_entries(device: &mut adb_client::server_device::ADBServerDevice) -> Vec<FileEntry> {
+fn virtual_data_data_entries(
+    device: &mut adb_client::server_device::ADBServerDevice,
+) -> Vec<FileEntry> {
     let user = get_current_user(device);
     let output = shell_output(device, &format!("pm list packages --user {user}"));
     let mut package_names: Vec<String> = output
@@ -292,7 +294,9 @@ fn virtual_data_data_entries(device: &mut adb_client::server_device::ADBServerDe
         .collect()
 }
 
-fn virtual_data_app_entries(device: &mut adb_client::server_device::ADBServerDevice) -> Vec<FileEntry> {
+fn virtual_data_app_entries(
+    device: &mut adb_client::server_device::ADBServerDevice,
+) -> Vec<FileEntry> {
     let user = get_current_user(device);
     let output = shell_output(device, &format!("pm list packages -f --user {user}"));
     let mut dir_names = HashSet::new();
@@ -465,8 +469,7 @@ pub async fn adb_pull_file(serial: String, path: String) -> Result<String, Strin
             .map_err(|e| format!("Cannot create Downloads dir: {e}"))?;
 
         let local_path = downloads.join(&filename);
-        std::fs::write(&local_path, bytes)
-            .map_err(|e| format!("Failed to write file: {e}"))?;
+        std::fs::write(&local_path, bytes).map_err(|e| format!("Failed to write file: {e}"))?;
 
         Ok(local_path.to_string_lossy().to_string())
     })
@@ -491,9 +494,11 @@ pub async fn adb_open_file(serial: String, path: String) -> Result<String, Strin
             .to_string();
 
         let open_dir = std::env::temp_dir().join("capubridge-open");
-        std::fs::create_dir_all(&open_dir).map_err(|e| format!("Failed to create temp dir: {e}"))?;
+        std::fs::create_dir_all(&open_dir)
+            .map_err(|e| format!("Failed to create temp dir: {e}"))?;
         let target_path = open_dir.join(filename);
-        std::fs::write(&target_path, bytes).map_err(|e| format!("Failed to write temp file: {e}"))?;
+        std::fs::write(&target_path, bytes)
+            .map_err(|e| format!("Failed to write temp file: {e}"))?;
         open_with_default_app(&target_path)?;
 
         Ok(target_path.to_string_lossy().to_string())

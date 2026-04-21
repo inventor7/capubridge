@@ -1,32 +1,40 @@
 mod commands;
+mod session;
 
 use commands::adb::{
-    adb_cancel_list_packages,
-    adb_connect_device, adb_disconnect_device, adb_get_app_icon, adb_get_device_info,
-    adb_get_package_details, adb_list_devices, adb_list_packages, adb_list_webview_sockets,
-    adb_open_package, adb_pair_device, adb_reboot, adb_restart_server, adb_root,
-    adb_shell_command, adb_tcpip, adb_start_server, start_logcat, stop_logcat,
-    adb_reverse, adb_remove_reverse, adb_list_reverse,
+    adb_cancel_list_packages, adb_connect_device, adb_disconnect_device, adb_get_app_icon,
+    adb_get_device_info, adb_get_package_details, adb_list_devices, adb_list_packages,
+    adb_list_reverse, adb_list_webview_sockets, adb_open_package, adb_pair_device, adb_reboot,
+    adb_remove_reverse, adb_restart_server, adb_reverse, adb_root, adb_shell_command,
+    adb_start_server, adb_tcpip, start_logcat, stop_logcat,
 };
-use commands::files::{adb_delete_file, adb_list_dir, adb_open_file, adb_pull_file};
 use commands::cdp_proxy::{cdp_start_proxy, cdp_stop_proxy};
 use commands::chrome::{
-    chrome_activate_target, chrome_fetch_targets, chrome_find, chrome_is_running,
-    chrome_kill_all, chrome_launch, chrome_open_devtools_url, chrome_open_target,
-    chrome_verify_port,
+    chrome_activate_target, chrome_fetch_targets, chrome_find, chrome_is_running, chrome_kill_all,
+    chrome_launch, chrome_open_devtools_url, chrome_open_target, chrome_verify_port,
 };
+use commands::files::{adb_delete_file, adb_list_dir, adb_open_file, adb_pull_file};
 use commands::mirror::{
     adb_mirror_get_screen_size, adb_mirror_keyevent, adb_mirror_launch_scrcpy,
     adb_mirror_scrcpy_start, adb_mirror_scrcpy_stop, adb_mirror_screenshot,
-    adb_mirror_start_recording, adb_mirror_stop_recording, adb_mirror_touch_event,
-    adb_mirror_stop_scrcpy, adb_mirror_swipe, adb_mirror_tap,
+    adb_mirror_start_recording, adb_mirror_stop_recording, adb_mirror_stop_scrcpy,
+    adb_mirror_swipe, adb_mirror_tap, adb_mirror_touch_event,
 };
 use commands::perf::{adb_perf_start, adb_perf_stop};
 use commands::port_forward::{adb_fetch_json_targets, adb_forward_cdp, adb_remove_forward};
 use commands::sqlite::{
-    sqlite_close_database, sqlite_execute_query, sqlite_list_databases,
-    sqlite_open_database, sqlite_refresh_database, sqlite_scan_all_databases,
-    sqlite_table_columns, sqlite_table_indexes, sqlite_table_rows,
+    sqlite_close_database, sqlite_execute_query, sqlite_list_databases, sqlite_open_database,
+    sqlite_refresh_database, sqlite_scan_all_databases, sqlite_table_columns, sqlite_table_indexes,
+    sqlite_table_rows,
+};
+use session::{
+    cache_store::SessionCacheStore,
+    session_cancel_list_packages, session_get_device_info, session_get_registry_state,
+    session_list_devices, session_list_packages, session_list_reverse,
+    session_list_targets, session_list_webview_sockets, session_open_package,
+    session_reboot, session_refresh_devices, session_refresh_targets,
+    session_remove_reverse, session_reverse, session_root, session_set_active_device,
+    session_shell_command, session_tcpip, start_device_tracker, SessionRegistryState,
 };
 
 /// Suppress Windows error dialogs (RunDLL, GPF, critical-error) for this
@@ -50,9 +58,12 @@ pub fn run() {
     #[cfg(target_os = "windows")]
     suppress_error_dialogs();
 
+    let session_registry = SessionRegistryState::new();
+
     tauri::Builder::default()
+        .manage(session_registry.clone())
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
+        .setup(move |app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -62,9 +73,38 @@ pub fn run() {
                 )?;
             }
 
+            if let Ok(cache_store) = SessionCacheStore::new(app.handle()) {
+                if let Err(error) = session_registry
+                    .registry()
+                    .configure_cache_store(cache_store)
+                {
+                    log::warn!("[session-cache] Failed to restore cache: {error}");
+                }
+            }
+
+            start_device_tracker(app.handle().clone(), session_registry.registry());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            session_list_devices,
+            session_get_registry_state,
+            session_refresh_devices,
+            session_set_active_device,
+            session_get_device_info,
+            session_shell_command,
+            session_tcpip,
+            session_reboot,
+            session_root,
+            session_list_packages,
+            session_cancel_list_packages,
+            session_open_package,
+            session_reverse,
+            session_remove_reverse,
+            session_list_reverse,
+            session_list_webview_sockets,
+            session_list_targets,
+            session_refresh_targets,
             adb_start_server,
             adb_list_devices,
             adb_get_device_info,

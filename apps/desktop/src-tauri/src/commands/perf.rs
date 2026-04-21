@@ -123,14 +123,20 @@ fn parse_proc_stat(text: &str) -> HashMap<String, CpuTick> {
     map
 }
 
-fn cpu_metrics(prev: &HashMap<String, CpuTick>, curr: &HashMap<String, CpuTick>) -> (Vec<CpuCoreMetric>, f32) {
+fn cpu_metrics(
+    prev: &HashMap<String, CpuTick>,
+    curr: &HashMap<String, CpuTick>,
+) -> (Vec<CpuCoreMetric>, f32) {
     let mut cores: Vec<CpuCoreMetric> = Vec::new();
     let mut idx: u32 = 0;
     loop {
         let key = format!("cpu{idx}");
         match (prev.get(&key), curr.get(&key)) {
             (Some(p), Some(c)) => {
-                cores.push(CpuCoreMetric { core: idx, usage: c.usage_vs(p) });
+                cores.push(CpuCoreMetric {
+                    core: idx,
+                    usage: c.usage_vs(p),
+                });
                 idx += 1;
             }
             _ => break,
@@ -138,9 +144,7 @@ fn cpu_metrics(prev: &HashMap<String, CpuTick>, curr: &HashMap<String, CpuTick>)
     }
     let total = match (prev.get("cpu"), curr.get("cpu")) {
         (Some(p), Some(c)) => c.usage_vs(p),
-        _ if !cores.is_empty() => {
-            cores.iter().map(|c| c.usage).sum::<f32>() / cores.len() as f32
-        }
+        _ if !cores.is_empty() => cores.iter().map(|c| c.usage).sum::<f32>() / cores.len() as f32,
         _ => 0.0,
     };
     (cores, total)
@@ -163,8 +167,17 @@ fn parse_meminfo(text: &str) -> MemMetric {
         }
     }
     let used_kb = total_kb.saturating_sub(available_kb);
-    let used_pct = if total_kb > 0 { (used_kb as f32 / total_kb as f32 * 100.0).clamp(0.0, 100.0) } else { 0.0 };
-    MemMetric { total_kb, available_kb, used_kb, used_pct }
+    let used_pct = if total_kb > 0 {
+        (used_kb as f32 / total_kb as f32 * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    MemMetric {
+        total_kb,
+        available_kb,
+        used_kb,
+        used_pct,
+    }
 }
 
 // ── Network parsing ───────────────────────────────────────────────────────────
@@ -205,7 +218,10 @@ fn parse_net_dev(text: &str) -> NetBytes {
 
 fn net_bps(prev: &NetBytes, curr: &NetBytes, elapsed_secs: f64) -> NetMetric {
     if elapsed_secs < 0.001 {
-        return NetMetric { rx_bps: 0.0, tx_bps: 0.0 };
+        return NetMetric {
+            rx_bps: 0.0,
+            tx_bps: 0.0,
+        };
     }
     let rx_bps = (curr.rx.saturating_sub(prev.rx) as f64 / elapsed_secs).max(0.0);
     let tx_bps = (curr.tx.saturating_sub(prev.tx) as f64 / elapsed_secs).max(0.0);
@@ -231,7 +247,11 @@ fn parse_battery(text: &str) -> BatteryMetric {
             charging = val.trim() == "2";
         }
     }
-    BatteryMetric { level, temperature, charging }
+    BatteryMetric {
+        level,
+        temperature,
+        charging,
+    }
 }
 
 fn parse_numeric_tokens(text: &str) -> Vec<f32> {
@@ -324,7 +344,12 @@ pub async fn adb_perf_start(serial: String, app: AppHandle) -> Result<(), String
     let stop_flag = Arc::new(AtomicBool::new(false));
     {
         let mut sessions = PERF_SESSIONS.lock().unwrap();
-        sessions.insert(serial.clone(), PerfSession { stop_flag: stop_flag.clone() });
+        sessions.insert(
+            serial.clone(),
+            PerfSession {
+                stop_flag: stop_flag.clone(),
+            },
+        );
     }
 
     let serial_clone = serial.clone();
@@ -388,14 +413,7 @@ pub async fn adb_perf_start(serial: String, app: AppHandle) -> Result<(), String
             }
 
             match result {
-                Ok(Ok((
-                    stat,
-                    meminfo,
-                    net_raw,
-                    battery_raw,
-                    cpu_temp,
-                    cpu_temp_source,
-                ))) => {
+                Ok(Ok((stat, meminfo, net_raw, battery_raw, cpu_temp, cpu_temp_source))) => {
                     let now = std::time::Instant::now();
                     let elapsed = now.duration_since(prev_time).as_secs_f64();
                     prev_time = now;

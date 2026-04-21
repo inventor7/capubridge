@@ -5,12 +5,17 @@ import { createPinia } from "pinia";
 import { VueQueryPlugin } from "@tanstack/vue-query";
 import App from "./App.vue";
 import router from "@/router";
+import { useSessionStore } from "@/stores/session.store";
 
 const app = createApp(App);
+const pinia = createPinia();
 
-app.use(createPinia());
+app.use(pinia);
 app.use(router);
 app.use(VueQueryPlugin);
+
+const sessionStore = useSessionStore(pinia);
+void sessionStore.initialize();
 
 app.config.errorHandler = (err, _instance, info) => {
   console.error("[vue:error]", info, err);
@@ -19,6 +24,10 @@ app.config.errorHandler = (err, _instance, info) => {
 window.addEventListener("unhandledrejection", (event) => {
   console.error("[unhandled-rejection]", event.reason);
   event.preventDefault();
+});
+
+window.addEventListener("beforeunload", () => {
+  void sessionStore.dispose();
 });
 
 app.mount("#app");

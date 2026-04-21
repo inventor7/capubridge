@@ -75,7 +75,8 @@ const SCRCPY_REMOTE_SERVER_PATH: &str = "/data/local/tmp/scrcpy-server.jar";
 const SCRCPY_SOCKET_NAME: &str = "localabstract:scrcpy";
 const SCRCPY_FLAG_CONFIG: u64 = 1 << 63;
 const SCRCPY_FLAG_KEY_FRAME: u64 = 1 << 62;
-const SCRCPY_GITHUB_LATEST_RELEASE: &str = "https://api.github.com/repos/Genymobile/scrcpy/releases/latest";
+const SCRCPY_GITHUB_LATEST_RELEASE: &str =
+    "https://api.github.com/repos/Genymobile/scrcpy/releases/latest";
 const SCRCPY_MSG_TYPE_INJECT_TOUCH: u8 = 2;
 const SCRCPY_TOUCH_ACTION_DOWN: u8 = 0;
 const SCRCPY_TOUCH_ACTION_UP: u8 = 1;
@@ -285,12 +286,7 @@ fn parse_scrcpy_codec(codec_buf: [u8; 4], requested: &str) -> String {
 
 fn parse_scrcpy_server_version(name: &str) -> Option<String> {
     let version = name.strip_prefix("scrcpy-server-v")?;
-    Some(
-        version
-            .strip_suffix(".jar")
-            .unwrap_or(version)
-            .to_string(),
-    )
+    Some(version.strip_suffix(".jar").unwrap_or(version).to_string())
 }
 
 fn find_scrcpy_server_file(dir: &Path) -> Option<(PathBuf, String)> {
@@ -391,8 +387,10 @@ async fn ensure_scrcpy_server(app: &AppHandle) -> Result<(PathBuf, String), Stri
         break;
     }
 
-    let name = selected_name.ok_or_else(|| "No scrcpy-server asset found in latest release".to_string())?;
-    let url = selected_url.ok_or_else(|| "No scrcpy-server asset download URL found".to_string())?;
+    let name = selected_name
+        .ok_or_else(|| "No scrcpy-server asset found in latest release".to_string())?;
+    let url =
+        selected_url.ok_or_else(|| "No scrcpy-server asset download URL found".to_string())?;
     let target = base_dir.join(&name);
 
     let bytes = client
@@ -442,8 +440,12 @@ async fn start_scrcpy_stream(
         None::<&mut dyn Write>,
     );
 
-    let mut server_file = std::fs::File::open(&server_path)
-        .map_err(|e| format!("Failed to open scrcpy-server at {}: {e}", server_path.display()))?;
+    let mut server_file = std::fs::File::open(&server_path).map_err(|e| {
+        format!(
+            "Failed to open scrcpy-server at {}: {e}",
+            server_path.display()
+        )
+    })?;
     device
         .push(&mut server_file, &SCRCPY_REMOTE_SERVER_PATH)
         .map_err(|e| format!("Failed to push scrcpy-server: {e}"))?;
@@ -457,10 +459,7 @@ async fn start_scrcpy_stream(
         .port();
 
     device
-        .reverse(
-            SCRCPY_SOCKET_NAME.to_string(),
-            format!("tcp:{local_port}"),
-        )
+        .reverse(SCRCPY_SOCKET_NAME.to_string(), format!("tcp:{local_port}"))
         .map_err(|e| format!("Failed to create adb reverse tunnel: {e}"))?;
 
     let codec = if settings.video_codec.eq_ignore_ascii_case("h265") {
@@ -497,11 +496,7 @@ log_level=info",
     std::thread::spawn(move || {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let result = server_device.shell_command(
-            &server_cmd,
-            Some(&mut stdout),
-            Some(&mut stderr),
-        );
+        let result = server_device.shell_command(&server_cmd, Some(&mut stdout), Some(&mut stderr));
         if let Err(err) = result {
             log::warn!(
                 "[adb_mirror_scrcpy_start] scrcpy server shell ended with error for {}: {}",
@@ -545,11 +540,10 @@ log_level=info",
 
     let width = u32::from_be_bytes([size_buf[0], size_buf[1], size_buf[2], size_buf[3]]);
     let height = u32::from_be_bytes([size_buf[4], size_buf[5], size_buf[6], size_buf[7]]);
-    let (control_socket_raw, _) =
-        tokio::time::timeout(Duration::from_secs(5), listener.accept())
-            .await
-            .map_err(|_| "Timeout waiting for scrcpy control stream".to_string())?
-            .map_err(|e| format!("Failed to accept scrcpy control stream: {e}"))?;
+    let (control_socket_raw, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .map_err(|_| "Timeout waiting for scrcpy control stream".to_string())?
+        .map_err(|e| format!("Failed to accept scrcpy control stream: {e}"))?;
     let control_socket = Arc::new(TokioMutex::new(control_socket_raw));
     let negotiated_codec = parse_scrcpy_codec(codec_buf, codec);
     log::info!(
@@ -559,7 +553,13 @@ log_level=info",
         width,
         height
     );
-    Ok((video_socket, control_socket, width, height, negotiated_codec))
+    Ok((
+        video_socket,
+        control_socket,
+        width,
+        height,
+        negotiated_codec,
+    ))
 }
 
 async fn stream_scrcpy_packets(
@@ -668,7 +668,8 @@ pub async fn adb_mirror_scrcpy_start(
     }
 
     tokio::spawn(async move {
-        let result = stream_scrcpy_packets(video_socket, on_frame.clone(), shutdown.clone(), codec).await;
+        let result =
+            stream_scrcpy_packets(video_socket, on_frame.clone(), shutdown.clone(), codec).await;
         if let Ok(mut sessions) = SCRCPY_STREAM_SHUTDOWNS.lock() {
             sessions.remove(&serial);
         }
@@ -740,7 +741,10 @@ pub fn adb_mirror_get_screen_size(serial: String) -> Result<ScreenSize, String> 
             let parts: Vec<&str> = size_part.trim().split('x').collect();
             if parts.len() == 2 {
                 if let (Ok(w), Ok(h)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                    return Ok(ScreenSize { width: w, height: h });
+                    return Ok(ScreenSize {
+                        width: w,
+                        height: h,
+                    });
                 }
             }
         }

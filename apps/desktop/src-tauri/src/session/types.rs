@@ -1,0 +1,70 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionTrackerStatus {
+    Stopped,
+    Starting,
+    Running,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionTemperature {
+    Cold,
+    Warm,
+    Hot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDeviceSnapshot {
+    pub serial: String,
+    pub model: String,
+    pub product: String,
+    pub transport_id: String,
+    pub connection_type: String,
+    pub status: String,
+    pub temperature: SessionTemperature,
+    pub is_stale: bool,
+    pub last_seen_at: Option<u64>,
+    pub last_updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRegistrySnapshot {
+    pub devices: Vec<SessionDeviceSnapshot>,
+    pub active_serial: Option<String>,
+    pub tracker_status: SessionTrackerStatus,
+    pub revision: u64,
+    pub last_error: Option<String>,
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTargetSnapshot {
+    pub serial: String,
+    pub id: String,
+    #[serde(rename = "type")]
+    pub target_type: String,
+    pub title: String,
+    pub url: String,
+    #[serde(rename = "devtoolsFrontendUrl")]
+    pub devtools_frontend_url: Option<String>,
+    #[serde(rename = "webSocketDebuggerUrl")]
+    pub web_socket_debugger_url: String,
+    #[serde(rename = "faviconUrl")]
+    pub favicon_url: Option<String>,
+    pub package_name: Option<String>,
+    pub is_stale: bool,
+    pub last_updated_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SessionEvent {
+    RegistryUpdated { snapshot: SessionRegistrySnapshot },
+}

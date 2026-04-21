@@ -34,7 +34,10 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
     {
         let proxies = ACTIVE_PROXIES.lock().await;
         if let Some(proxy) = proxies.get(&ws_url) {
-            log::info!("[cdp_start_proxy] Proxy already exists on port {}", proxy.local_port);
+            log::info!(
+                "[cdp_start_proxy] Proxy already exists on port {}",
+                proxy.local_port
+            );
             return Ok(ProxyResult {
                 local_port: proxy.local_port,
                 ws_url: format!("ws://127.0.0.1:{}", proxy.local_port),
@@ -89,7 +92,7 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
                         request.headers_mut().remove("Pragma");
                         request.headers_mut().remove("Cache-Control");
 
-                    let cdp_result = connect_async(request).await;
+                        let cdp_result = connect_async(request).await;
 
                         let (cdp_ws, response) = match cdp_result {
                             Ok((ws, resp)) => (ws, resp),
@@ -99,7 +102,10 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
                             }
                         };
 
-                        log::info!("[cdp_proxy] Connected to CDP, status: {}", response.status());
+                        log::info!(
+                            "[cdp_proxy] Connected to CDP, status: {}",
+                            response.status()
+                        );
 
                         // Bidirectional relay
                         let (mut client_sink, mut client_stream) = client_ws.split();
@@ -109,7 +115,10 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
                             while let Some(Ok(msg)) = client_stream.next().await {
                                 log::info!("[cdp_proxy] client -> cdp msg on port {}", local_port);
                                 if cdp_sink.send(msg).await.is_err() {
-                                    log::warn!("[cdp_proxy] client -> cdp send failed on port {}", local_port);
+                                    log::warn!(
+                                        "[cdp_proxy] client -> cdp send failed on port {}",
+                                        local_port
+                                    );
                                     break;
                                 }
                             }
@@ -120,7 +129,10 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
                             while let Some(Ok(msg)) = cdp_stream.next().await {
                                 log::info!("[cdp_proxy] cdp -> client msg on port {}", local_port);
                                 if client_sink.send(msg).await.is_err() {
-                                    log::warn!("[cdp_proxy] cdp -> client send failed on port {}", local_port);
+                                    log::warn!(
+                                        "[cdp_proxy] cdp -> client send failed on port {}",
+                                        local_port
+                                    );
                                     break;
                                 }
                             }
@@ -165,7 +177,10 @@ pub async fn cdp_start_proxy(ws_url: String) -> Result<ProxyResult, String> {
 pub async fn cdp_stop_proxy(ws_url: String) -> Result<(), String> {
     let mut proxies = ACTIVE_PROXIES.lock().await;
     if let Some(proxy) = proxies.remove(&ws_url) {
-        log::info!("[cdp_stop_proxy] Stopping proxy on port {}", proxy.local_port);
+        log::info!(
+            "[cdp_stop_proxy] Stopping proxy on port {}",
+            proxy.local_port
+        );
         proxy.abort_handle.abort();
     }
     Ok(())

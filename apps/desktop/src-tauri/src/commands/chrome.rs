@@ -1,6 +1,6 @@
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
-use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -63,11 +63,17 @@ fn is_port_listening(port: u16) -> bool {
 }
 
 fn is_chrome_already_running() -> bool {
-    let process_name = if cfg!(windows) { "chrome.exe" } else { "chrome" };
-    sysinfo::System::new_all()
-        .processes()
-        .values()
-        .any(|p| p.name().to_string_lossy().to_lowercase().contains(process_name))
+    let process_name = if cfg!(windows) {
+        "chrome.exe"
+    } else {
+        "chrome"
+    };
+    sysinfo::System::new_all().processes().values().any(|p| {
+        p.name()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(process_name)
+    })
 }
 
 #[tauri::command]
@@ -77,10 +83,19 @@ pub async fn chrome_is_running() -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn chrome_kill_all() -> Result<(), String> {
-    let process_name = if cfg!(windows) { "chrome.exe" } else { "chrome" };
+    let process_name = if cfg!(windows) {
+        "chrome.exe"
+    } else {
+        "chrome"
+    };
     let sys = sysinfo::System::new_all();
     for (pid, process) in sys.processes() {
-        if process.name().to_string_lossy().to_lowercase().contains(process_name) {
+        if process
+            .name()
+            .to_string_lossy()
+            .to_lowercase()
+            .contains(process_name)
+        {
             if !process.kill() {
                 return Err(format!("Failed to kill Chrome process {}", pid));
             }
@@ -100,9 +115,13 @@ pub async fn chrome_find() -> Result<ChromeFindResult, String> {
 }
 
 #[tauri::command]
-pub async fn chrome_launch(_app: tauri::AppHandle, port: u16) -> Result<ChromeLaunchResult, String> {
-    let chrome_path = find_chrome_path()
-        .ok_or("Chrome not found. Please install Google Chrome or specify a custom path in settings.")?;
+pub async fn chrome_launch(
+    _app: tauri::AppHandle,
+    port: u16,
+) -> Result<ChromeLaunchResult, String> {
+    let chrome_path = find_chrome_path().ok_or(
+        "Chrome not found. Please install Google Chrome or specify a custom path in settings.",
+    )?;
 
     if is_port_listening(port) {
         return Err(format!(
@@ -147,7 +166,10 @@ pub async fn chrome_launch(_app: tauri::AppHandle, port: u16) -> Result<ChromeLa
             return Err("Chrome launched but exited immediately. Check if another Chrome instance is running.".to_string());
         }
         if i == 49 {
-            return Err("Chrome launched but CDP port is not responding. The process may have exited.".to_string());
+            return Err(
+                "Chrome launched but CDP port is not responding. The process may have exited."
+                    .to_string(),
+            );
         }
     }
 
@@ -277,7 +299,10 @@ pub async fn chrome_open_target(port: u16, url: String) -> Result<CDPJsonTarget,
         .map_err(|e| format!("Failed to fetch Chrome version endpoint: {e}"))?;
 
     if !version.status().is_success() {
-        return Err(format!("Chrome version endpoint responded with {}", version.status()));
+        return Err(format!(
+            "Chrome version endpoint responded with {}",
+            version.status()
+        ));
     }
 
     let version: ChromeVersionResponse = version
@@ -327,7 +352,10 @@ pub async fn chrome_open_target(port: u16, url: String) -> Result<CDPJsonTarget,
         }
 
         if let Some(error) = parsed.error {
-            return Err(format!("Chrome rejected create target command: {}", error.message));
+            return Err(format!(
+                "Chrome rejected create target command: {}",
+                error.message
+            ));
         }
 
         if let Some(result) = parsed.result {
@@ -410,7 +438,10 @@ pub async fn chrome_activate_target(port: u16, target_id: String) -> Result<(), 
         }
 
         if let Some(error) = parsed.error {
-            return Err(format!("Chrome rejected activate target command: {}", error.message));
+            return Err(format!(
+                "Chrome rejected activate target command: {}",
+                error.message
+            ));
         }
 
         let _ = parsed.result;

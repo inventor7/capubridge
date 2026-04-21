@@ -26,6 +26,7 @@
     "@vueuse/core": "catalog:",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
+    "effect": "catalog:",
     "geist": "catalog:",
     "lucide-vue-next": "catalog:",
     "pinia": "catalog:",
