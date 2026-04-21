@@ -32,7 +32,7 @@ use session::{
     session_cancel_list_packages, session_get_device_info, session_get_registry_state,
     session_list_devices, session_list_packages, session_list_reverse,
     session_list_targets, session_list_webview_sockets, session_open_package,
-    session_reboot, session_refresh_devices, session_refresh_targets,
+    session_reboot, session_refresh_devices, session_refresh_packages, session_refresh_targets,
     session_remove_reverse, session_reverse, session_root, session_set_active_device,
     session_shell_command, session_tcpip, start_device_tracker, SessionRegistryState,
 };
@@ -97,6 +97,7 @@ pub fn run() {
             session_reboot,
             session_root,
             session_list_packages,
+            session_refresh_packages,
             session_cancel_list_packages,
             session_open_package,
             session_reverse,

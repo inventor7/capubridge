@@ -52,6 +52,10 @@ export function listPackagesEffect(serial: string, scope: SessionPackageScope = 
   return invokeEffect<AdbPackage[]>("session_list_packages", { serial, scope });
 }
 
+export function refreshPackagesEffect(serial: string, scope: SessionPackageScope = "all") {
+  return invokeEffect<AdbPackage[]>("session_refresh_packages", { serial, scope });
+}
+
 export function cancelListPackagesEffect(serial: string) {
   return invokeEffect<void>("session_cancel_list_packages", { serial });
 }

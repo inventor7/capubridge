@@ -57,6 +57,7 @@ const chromeNewUrl = ref("https://");
 const openingChromeUrl = ref(false);
 const isWifiConnecting = ref(false);
 const expandedTargetPackages = ref<Set<string>>(new Set());
+const openRunId = ref(0);
 
 const selectedDevice = computed(
   () => devicesStore.devices.find((d) => d.serial === selectedSerial.value) ?? null,
@@ -240,7 +241,24 @@ async function handleRefreshTargets() {
   const wasPolling = devicesStore.isPolling;
   if (wasPolling) devicesStore.stopPolling();
   try {
-    await Promise.all(sourceStore.activeSources.map((s) => targetsStore.fetchTargetsForSource(s)));
+    if (activePanel.value === "local") {
+      const chromeSource = sourceStore.getChromeSource();
+      if (chromeSource) {
+        await targetsStore.fetchTargetsForSource(chromeSource);
+      }
+      return;
+    }
+
+    const serial =
+      selectedSerial.value ??
+      devicesStore.selectedDevice?.serial ??
+      sourceStore.getAdbSource()?.serial ??
+      null;
+    if (!serial) {
+      return;
+    }
+
+    await targetsStore.fetchTargetsForSource({ type: "adb", serial });
   } finally {
     scanningTargets.value = false;
     if (wasPolling && props.open) devicesStore.startPolling(3000);
@@ -508,7 +526,7 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
-      void handleRefreshDevices();
+      const runId = ++openRunId.value;
       if (devicesStore.selectedDevice) {
         selectedSerial.value = devicesStore.selectedDevice.serial;
         activePanel.value = "device";
@@ -520,10 +538,17 @@ watch(
         activePanel.value = "device";
         void loadDeviceInfo(devicesStore.devices[0].serial);
       }
-      if (sourceStore.activeSources.length > 0) {
-        void handleRefreshTargets();
-      }
+      void (async () => {
+        await handleRefreshDevices();
+        if (!props.open || runId !== openRunId.value) {
+          return;
+        }
+        if (activePanel.value !== "connect") {
+          await handleRefreshTargets();
+        }
+      })();
     } else {
+      openRunId.value += 1;
       devicesStore.stopPolling();
     }
   },

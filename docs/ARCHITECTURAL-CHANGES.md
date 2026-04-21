@@ -864,12 +864,12 @@ This order prioritizes runtime control first, then migrates expensive feature pa
 
 - [x] Architecture decisions locked through grill-me discussion.
 - [x] Planning document created.
-- [ ] Phase 0 contracts implemented.
-- [ ] Phase 1 device tracker implemented.
-- [ ] Phase 2 per-device worker and queue implemented.
-- [ ] Phase 3 cache-only persistence implemented.
-- [ ] Phase 4 target discovery migrated.
-- [ ] Phase 5 package snapshots migrated.
+- [x] Phase 0 contracts implemented.
+- [x] Phase 1 device tracker implemented.
+- [x] Phase 2 per-device worker and queue implemented.
+- [x] Phase 3 cache-only persistence implemented.
+- [x] Phase 4 target discovery migrated.
+- [x] Phase 5 package snapshots migrated.
 - [ ] Phase 6 live feature leases migrated.
 - [ ] Phase 7 watcher cleanup completed.
 - [ ] Phase 8 docs and verification completed.

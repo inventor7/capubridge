@@ -38,6 +38,10 @@ export interface SessionBridgeService {
     serial: string,
     scope?: SessionPackageScope,
   ) => Effect.Effect<AdbPackage[], TauriInvokeError>;
+  refreshPackages: (
+    serial: string,
+    scope?: SessionPackageScope,
+  ) => Effect.Effect<AdbPackage[], TauriInvokeError>;
   cancelPackages: (serial: string) => Effect.Effect<void, TauriInvokeError>;
   openPackage: (serial: string, packageName: string) => Effect.Effect<string, TauriInvokeError>;
   reverse: (

@@ -63,11 +63,20 @@ export function initCDPWatchers() {
   let selectionRun = 0;
 
   watch(
-    () => devicesStore.selectedDevice,
-    async (device, previousDevice) => {
+    () =>
+      [
+        devicesStore.selectedDevice?.serial ?? null,
+        devicesStore.selectedDevice?.status ?? null,
+      ] as const,
+    async ([deviceSerial, deviceStatus], [previousSerial, previousStatus]) => {
+      if (deviceSerial === previousSerial && deviceStatus === previousStatus) {
+        return;
+      }
+
+      const device = devicesStore.selectedDevice;
       console.log("[cdp] device watcher", {
-        current: device?.serial ?? null,
-        previous: previousDevice?.serial ?? null,
+        current: deviceSerial,
+        previous: previousSerial,
       });
       const runId = ++selectionRun;
       const oldSerial = sourceStore.getAdbSource()?.serial ?? null;
@@ -92,7 +101,7 @@ export function initCDPWatchers() {
           await targetsStore.hydrateAdbTargets(device.serial);
           if (runId !== selectionRun) return;
         }
-      } else if (previousDevice && !device) {
+      } else if (previousSerial && !deviceSerial) {
         const currentSerial = sourceStore.getAdbSource()?.serial ?? null;
         if (selectedTargetId && targetsStore.selectedTarget?.source === "adb") {
           await connectionStore.disconnectTarget(selectedTargetId);

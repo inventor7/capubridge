@@ -27,6 +27,8 @@ export const SessionBridgeLive = Layer.succeed(SessionBridge, {
     invokeEffect<void>("session_reboot", { serial, mode }),
   listPackages: (serial: string, scope?: SessionPackageScope) =>
     invokeEffect<AdbPackage[]>("session_list_packages", { serial, scope }),
+  refreshPackages: (serial: string, scope?: SessionPackageScope) =>
+    invokeEffect<AdbPackage[]>("session_refresh_packages", { serial, scope }),
   cancelPackages: (serial: string) =>
     invokeEffect<void>("session_cancel_list_packages", { serial }),
   openPackage: (serial: string, packageName: string) =>

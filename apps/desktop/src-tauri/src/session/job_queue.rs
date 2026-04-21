@@ -20,7 +20,7 @@ pub enum SessionJobResult {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SessionJobKey {
     DeviceInfo,
-    Packages(Option<PackageListScope>),
+    Packages(PackageListScope),
     ReverseRules,
     WebViewSockets,
     Targets,
@@ -33,7 +33,7 @@ pub enum SessionWorkerJob {
     TcpIp { port: u16 },
     Root,
     Reboot { mode: Option<String> },
-    ListPackages { scope: Option<PackageListScope> },
+    RefreshPackages { scope: PackageListScope },
     CancelPackages,
     OpenPackage { package_name: String },
     Reverse { remote_port: u16, local_port: u16 },
@@ -47,7 +47,7 @@ impl SessionWorkerJob {
     pub fn coalescing_key(&self) -> Option<SessionJobKey> {
         match self {
             Self::GetDeviceInfo => Some(SessionJobKey::DeviceInfo),
-            Self::ListPackages { scope } => Some(SessionJobKey::Packages(*scope)),
+            Self::RefreshPackages { scope } => Some(SessionJobKey::Packages(*scope)),
             Self::ListReverse => Some(SessionJobKey::ReverseRules),
             Self::ListWebViewSockets => Some(SessionJobKey::WebViewSockets),
             Self::RefreshTargets => Some(SessionJobKey::Targets),

@@ -1204,6 +1204,8 @@ pub struct AdbPackage {
     pub enabled: bool,
     pub label: Option<String>,
     pub icon_path: Option<String>,
+    pub is_stale: bool,
+    pub last_updated_at: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1240,6 +1242,10 @@ pub(crate) fn adb_list_packages_inner(
     scope: Option<PackageListScope>,
 ) -> Result<Vec<AdbPackage>, String> {
     clear_package_scan_cancel(serial);
+    let updated_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
     let result = (|| -> Result<Vec<AdbPackage>, String> {
         let mut server = ADB_SERVER.lock();
         let mut device = server
@@ -1341,6 +1347,8 @@ pub(crate) fn adb_list_packages_inner(
                 apk_path,
                 label: aya_info.and_then(|info| info.label.clone()),
                 icon_path: aya_info.and_then(|info| info.icon.clone()),
+                is_stale: false,
+                last_updated_at: Some(updated_at),
             });
         }
 

@@ -228,6 +228,7 @@ impl SessionRegistry {
                     device.last_updated_at = timestamp;
                     if let Some(session) = self.session_for_serial(&device.serial) {
                         session.mark_targets_stale();
+                        session.mark_packages_stale();
                     }
                 } else {
                     device.is_stale = false;
@@ -378,7 +379,20 @@ pub fn session_list_packages(
     serial: String,
     scope: Option<PackageListScope>,
 ) -> Result<Vec<crate::commands::adb::AdbPackage>, String> {
-    session_for_online_serial(&state, &serial)?.list_packages(scope)
+    if state.registry().device_snapshot(&serial).is_none() {
+        return Err(format!("Unknown device serial: {serial}"));
+    }
+
+    state.registry().ensure_session(&serial).list_packages(scope)
+}
+
+#[tauri::command]
+pub fn session_refresh_packages(
+    state: State<'_, SessionRegistryState>,
+    serial: String,
+    scope: Option<PackageListScope>,
+) -> Result<Vec<crate::commands::adb::AdbPackage>, String> {
+    session_for_online_serial(&state, &serial)?.refresh_packages(scope)
 }
 
 #[tauri::command]

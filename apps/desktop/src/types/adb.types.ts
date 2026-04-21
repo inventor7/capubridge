@@ -26,6 +26,8 @@ export interface AdbPackage {
   enabled: boolean;
   label?: string | null;
   iconPath?: string | null;
+  isStale?: boolean;
+  lastUpdatedAt?: number | null;
 }
 
 export interface AdbPackageDetails {

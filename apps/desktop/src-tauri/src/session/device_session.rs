@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use std::collections::HashMap;
 use parking_lot::RwLock;
 
 use crate::commands::adb::{
@@ -55,6 +56,7 @@ pub struct DeviceSession {
     sender: mpsc::Sender<SessionWorkerRequest>,
     queue: Arc<SessionJobQueue>,
     targets: RwLock<Vec<SessionTargetSnapshot>>,
+    packages: RwLock<HashMap<PackageListScope, Vec<AdbPackage>>>,
 }
 
 impl DeviceSession {
@@ -67,6 +69,7 @@ impl DeviceSession {
             sender,
             queue: queue.clone(),
             targets: RwLock::new(Vec::new()),
+            packages: RwLock::new(HashMap::new()),
         });
 
         thread::Builder::new()
@@ -116,9 +119,31 @@ impl DeviceSession {
         &self,
         scope: Option<PackageListScope>,
     ) -> Result<Vec<AdbPackage>, String> {
-        match self.request(SessionWorkerJob::ListPackages { scope })? {
-            Packages(packages) => Ok(packages),
-            _ => Err("session-invalid-response: list-packages".to_string()),
+        let scope = scope.unwrap_or(PackageListScope::All);
+        if let Some(packages) = self.packages.read().get(&scope) {
+            return Ok(packages.clone());
+        }
+
+        if scope == PackageListScope::ThirdParty {
+            if let Some(packages) = self.packages.read().get(&PackageListScope::All) {
+                return Ok(packages.iter().filter(|entry| !entry.system).cloned().collect());
+            }
+        }
+
+        Ok(Vec::new())
+    }
+
+    pub fn refresh_packages(
+        &self,
+        scope: Option<PackageListScope>,
+    ) -> Result<Vec<AdbPackage>, String> {
+        let scope = scope.unwrap_or(PackageListScope::All);
+        match self.request(SessionWorkerJob::RefreshPackages { scope })? {
+            Packages(packages) => {
+                self.write_packages(scope, packages.clone());
+                Ok(packages)
+            }
+            _ => Err("session-invalid-response: refresh-packages".to_string()),
         }
     }
 
@@ -190,6 +215,30 @@ impl DeviceSession {
         }
     }
 
+    pub fn mark_packages_stale(&self) {
+        let updated_at = now_millis();
+        let mut packages_by_scope = self.packages.write();
+        for packages in packages_by_scope.values_mut() {
+            for package in packages.iter_mut() {
+                package.is_stale = true;
+                package.last_updated_at = Some(updated_at);
+            }
+        }
+    }
+
+    fn write_packages(&self, scope: PackageListScope, packages: Vec<AdbPackage>) {
+        let mut packages_by_scope = self.packages.write();
+        packages_by_scope.insert(scope, packages.clone());
+        if scope == PackageListScope::All {
+            let third_party = packages
+                .iter()
+                .filter(|entry| !entry.system)
+                .cloned()
+                .collect::<Vec<_>>();
+            packages_by_scope.insert(PackageListScope::ThirdParty, third_party);
+        }
+    }
+
     fn request(&self, job: SessionWorkerJob) -> Result<SessionJobResult, String> {
         let receiver = self.queue.enqueue(&self.sender, job);
         receiver.recv().map_err(|error| {
@@ -234,9 +283,9 @@ fn execute_job(serial: &str, job: &SessionWorkerJob) -> Result<SessionJobResult,
         SessionWorkerJob::Reboot { mode } => catch_adb_panic("session_reboot", || {
             adb_reboot_inner(serial, mode.as_deref()).map(|_| Unit)
         }),
-        SessionWorkerJob::ListPackages { scope } => {
-            catch_adb_panic("session_list_packages", || {
-                adb_list_packages_inner(serial, *scope).map(Packages)
+        SessionWorkerJob::RefreshPackages { scope } => {
+            catch_adb_panic("session_refresh_packages", || {
+                adb_list_packages_inner(serial, Some(*scope)).map(Packages)
             })
         }
         SessionWorkerJob::CancelPackages => catch_adb_panic("session_cancel_list_packages", || {

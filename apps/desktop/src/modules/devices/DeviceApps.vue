@@ -29,7 +29,7 @@ interface QuickPathEntry {
 const devicesStore = useDevicesStore();
 const router = useRouter();
 const queryClient = useQueryClient();
-const { getPackageDetails, listPackages, openPackage, cancelListPackages, shellCommand } = useAdb();
+const { getPackageDetails, openPackage, cancelListPackages, shellCommand } = useAdb();
 
 const serial = computed(() => devicesStore.selectedDevice?.serial ?? "");
 const appsView = ref<"grid" | "table">("grid");
