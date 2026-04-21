@@ -5,7 +5,7 @@ export type Theme = "dark" | "light";
 
 export const useUIStore = defineStore("ui", () => {
   const activePanel = ref<string>("/devices");
-  const sidebarCollapsed = ref(false);
+  const sidebarCollapsed = ref(true);
 
   const saved = localStorage.getItem("capubridge:theme") as Theme | null;
   const theme = ref<Theme>(saved ?? "dark");

@@ -1,10 +1,14 @@
-import { ref, watch } from "vue";
+import { ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { useDevicesStore } from "@/stores/devices.store";
 import { useDockStore } from "@/stores/dock.store";
-import type { LogcatEntry, LogcatErrorPayload } from "@/types/console.types";
+import {
+  runSessionEffect,
+  startLogcatLeaseEffect,
+  stopLogcatLeaseEffect,
+  subscribeSessionEventsEffect,
+} from "@/runtime/session";
+import type { LogcatEntry } from "@/types/console.types";
+import type { SessionEvent } from "@/types/session.types";
 
 const maxLogcatEntries = 900;
 const maxPausedBufferEntries = 400;
@@ -22,7 +26,6 @@ function trimPausedEntries(entries: LogcatEntry[]): LogcatEntry[] {
 }
 
 export const useLogcatStore = defineStore("logcat", () => {
-  const devicesStore = useDevicesStore();
   const dockStore = useDockStore();
 
   const entries = ref<LogcatEntry[]>([]);
@@ -33,8 +36,10 @@ export const useLogcatStore = defineStore("logcat", () => {
   const pausedEntries = ref<LogcatEntry[]>([]);
   const pausedCount = ref(0);
   const error = ref<string | null>(null);
+  const unlisten = shallowRef<null | (() => void)>(null);
 
   let initializePromise: Promise<void> | null = null;
+
   function clear() {
     entries.value = [];
     pausedEntries.value = [];
@@ -62,56 +67,29 @@ export const useLogcatStore = defineStore("logcat", () => {
     dockStore.markUnread("logcat");
   }
 
-  async function stopStream(targetSerial: string | null) {
-    if (!targetSerial) {
+  function handleSessionEvent(event: SessionEvent) {
+    if (event.type === "logcatEntry") {
+      pushEntry(event.entry);
       return;
     }
 
-    try {
-      await invoke("stop_logcat", { serial: targetSerial });
-    } catch {}
+    if (event.type === "logcatError") {
+      if (event.serial !== serial.value) {
+        return;
+      }
 
-    if (serial.value === targetSerial) {
-      isStreaming.value = false;
-    }
-  }
-
-  async function startStream(targetSerial: string) {
-    if (serial.value === targetSerial && isStreaming.value) {
-      return;
-    }
-
-    error.value = null;
-    serial.value = targetSerial;
-    entries.value = [];
-    pausedEntries.value = [];
-    pausedCount.value = 0;
-
-    try {
-      await invoke("start_logcat", { serial: targetSerial });
-      isStreaming.value = true;
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : String(err);
-      isStreaming.value = false;
-    }
-  }
-
-  async function syncSerial(nextSerial: string | null, previousSerial: string | null) {
-    if (previousSerial && previousSerial !== nextSerial) {
-      await stopStream(previousSerial);
-    }
-
-    if (!nextSerial) {
-      serial.value = null;
-      entries.value = [];
-      pausedEntries.value = [];
-      pausedCount.value = 0;
-      error.value = null;
+      error.value = event.message;
       isStreaming.value = false;
       return;
     }
 
-    await startStream(nextSerial);
+    if (event.type === "leaseStateChanged") {
+      if (event.lease.kind !== "logcat" || event.lease.serial !== serial.value) {
+        return;
+      }
+
+      isStreaming.value = event.lease.active;
+    }
   }
 
   async function initialize() {
@@ -124,43 +102,87 @@ export const useLogcatStore = defineStore("logcat", () => {
         return;
       }
 
-      await listen<LogcatEntry>("logcat:line", (event) => {
-        pushEntry(event.payload);
-      });
-
-      await listen<LogcatErrorPayload>("logcat:error", (event) => {
-        if (event.payload.serial !== serial.value) {
-          return;
-        }
-
-        error.value = event.payload.message;
-        isStreaming.value = false;
-      });
-
-      await listen<string>("logcat:stopped", (event) => {
-        if (event.payload !== serial.value) {
-          return;
-        }
-
-        isStreaming.value = false;
-      });
-
-      watch(
-        () => devicesStore.selectedDevice?.serial ?? null,
-        (nextSerial, previousSerial) => {
-          void syncSerial(nextSerial, previousSerial ?? null);
-        },
-        { immediate: true },
-      );
+      if (!unlisten.value) {
+        unlisten.value = await runSessionEffect(subscribeSessionEventsEffect(handleSessionEvent), {
+          operation: "session.subscribeLogcat",
+        });
+      }
 
       isReady.value = true;
-    })();
+    })().finally(() => {
+      initializePromise = null;
+    });
 
     return initializePromise;
   }
 
+  async function stopLease(targetSerial: string | null) {
+    if (!targetSerial) {
+      return;
+    }
+
+    try {
+      await runSessionEffect(stopLogcatLeaseEffect(targetSerial), {
+        operation: "session.stopLogcatLease",
+      });
+    } catch {}
+
+    if (serial.value === targetSerial) {
+      isStreaming.value = false;
+    }
+  }
+
+  async function startLease(targetSerial: string) {
+    error.value = null;
+    serial.value = targetSerial;
+    clear();
+
+    try {
+      await runSessionEffect(startLogcatLeaseEffect(targetSerial), {
+        operation: "session.startLogcatLease",
+      });
+      isStreaming.value = true;
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : String(err);
+      isStreaming.value = false;
+      throw err;
+    }
+  }
+
+  async function syncLease(
+    nextSerial: string | null,
+    previousSerial: string | null = serial.value,
+  ) {
+    await initialize();
+
+    if (previousSerial && previousSerial !== nextSerial) {
+      await stopLease(previousSerial);
+    }
+
+    if (!nextSerial) {
+      serial.value = null;
+      clear();
+      error.value = null;
+      isStreaming.value = false;
+      return;
+    }
+
+    if (serial.value === nextSerial && isStreaming.value) {
+      return;
+    }
+
+    await startLease(nextSerial);
+  }
+
   async function restart() {
-    await syncSerial(devicesStore.selectedDevice?.serial ?? null, serial.value);
+    await initialize();
+    if (!serial.value) {
+      return;
+    }
+
+    const currentSerial = serial.value;
+    await stopLease(currentSerial);
+    await startLease(currentSerial);
   }
 
   function resume() {
@@ -189,6 +211,16 @@ export const useLogcatStore = defineStore("logcat", () => {
     pause();
   }
 
+  async function dispose() {
+    await stopLease(serial.value);
+    const stopListening = unlisten.value;
+    unlisten.value = null;
+    if (stopListening) {
+      stopListening();
+    }
+    isReady.value = false;
+  }
+
   return {
     entries,
     serial,
@@ -198,10 +230,12 @@ export const useLogcatStore = defineStore("logcat", () => {
     pausedCount,
     error,
     initialize,
+    syncLease,
     restart,
     pause,
     resume,
     togglePaused,
     clear,
+    dispose,
   };
 });

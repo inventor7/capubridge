@@ -1,8 +1,14 @@
 import { computed, ref, watch, type WatchStopHandle } from "vue";
 import { defineStore } from "pinia";
+import {
+  attachConsoleTargetEffect,
+  detachConsoleTargetEffect,
+  runSessionEffect,
+} from "@/runtime/session";
 import { useConnectionStore } from "@/stores/connection.store";
 import { useDockStore } from "@/stores/dock.store";
 import { useTargetsStore } from "@/stores/targets.store";
+import type { CDPTarget } from "@/types/cdp.types";
 import type {
   ConsoleEntry,
   ConsoleEntryLevel,
@@ -201,6 +207,9 @@ export const useConsoleStore = defineStore("console", () => {
   const exceptions = ref<ConsoleExceptionEntry[]>([]);
   const replHistory = ref<ReplHistoryEntry[]>([]);
   const boundTargetId = ref<string | null>(null);
+  const leasedTargetId = ref<string | null>(null);
+  const leasedSerial = ref<string | null>(null);
+  const leaseConsumers = ref(0);
   const isReady = ref(false);
   const error = ref<string | null>(null);
 
@@ -378,8 +387,16 @@ export const useConsoleStore = defineStore("console", () => {
     });
   }
 
-  async function bindActiveClient() {
-    const targetId = connectionStore.activeConnection?.targetId ?? null;
+  function findTarget(targetId: string): CDPTarget | null {
+    const selectedTarget = targetsStore.selectedTarget;
+    return (
+      targetsStore.targets.find((target) => target.id === targetId) ??
+      (selectedTarget?.id === targetId ? selectedTarget : null)
+    );
+  }
+
+  async function bindLeasedClient() {
+    const targetId = leasedTargetId.value;
     if (targetId !== boundTargetId.value) {
       resetTargetState(targetId);
     }
@@ -390,7 +407,22 @@ export const useConsoleStore = defineStore("console", () => {
       return;
     }
 
-    const client = connectionStore.getClient(targetId);
+    const target = findTarget(targetId);
+    if (!target) {
+      error.value = "No active target metadata";
+      return;
+    }
+
+    let client = connectionStore.getClient(targetId);
+    if (!client) {
+      try {
+        client = await connectionStore.connect(target);
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : String(err);
+        return;
+      }
+    }
+
     if (!client) {
       return;
     }
@@ -426,11 +458,20 @@ export const useConsoleStore = defineStore("console", () => {
       stopWatchHandle = watch(
         () =>
           [
+            leasedTargetId.value,
             connectionStore.activeConnection?.targetId ?? null,
             connectionStore.activeConnection?.status ?? "disconnected",
           ] as const,
         () => {
-          void bindActiveClient();
+          if (leaseConsumers.value <= 0 || !leasedTargetId.value) {
+            clearClientBindings();
+            if (boundTargetId.value) {
+              resetTargetState(null);
+            }
+            return;
+          }
+
+          void bindLeasedClient();
         },
         { immediate: true },
       );
@@ -439,6 +480,84 @@ export const useConsoleStore = defineStore("console", () => {
     });
 
     return initializePromise;
+  }
+
+  async function detachConsoleLease(serial: string | null) {
+    if (!serial) {
+      return;
+    }
+
+    try {
+      await runSessionEffect(detachConsoleTargetEffect(serial), {
+        operation: "session.detachConsoleTarget",
+      });
+    } catch {}
+  }
+
+  async function syncLease(target: CDPTarget | null) {
+    await initialize();
+
+    if (leaseConsumers.value <= 0) {
+      return;
+    }
+
+    const nextTargetId = target?.id ?? null;
+    const nextSerial = target?.source === "adb" ? (target.deviceSerial ?? null) : null;
+
+    if (nextTargetId === leasedTargetId.value && nextSerial === leasedSerial.value) {
+      await bindLeasedClient();
+      return;
+    }
+
+    const previousSerial = leasedSerial.value;
+    leasedTargetId.value = nextTargetId;
+    leasedSerial.value = nextSerial;
+    resetTargetState(nextTargetId);
+    clearClientBindings();
+
+    if (previousSerial && previousSerial !== nextSerial) {
+      await detachConsoleLease(previousSerial);
+    }
+
+    if (!target || !nextTargetId) {
+      return;
+    }
+
+    if (nextSerial) {
+      await runSessionEffect(attachConsoleTargetEffect(nextSerial, nextTargetId), {
+        operation: "session.attachConsoleTarget",
+      });
+    }
+
+    await bindLeasedClient();
+  }
+
+  async function acquireLease() {
+    await initialize();
+    leaseConsumers.value += 1;
+    if (leaseConsumers.value > 1) {
+      return;
+    }
+
+    await syncLease(targetsStore.selectedTarget);
+  }
+
+  async function releaseLease() {
+    if (leaseConsumers.value <= 0) {
+      return;
+    }
+
+    leaseConsumers.value -= 1;
+    if (leaseConsumers.value > 0) {
+      return;
+    }
+
+    const previousSerial = leasedSerial.value;
+    leasedTargetId.value = null;
+    leasedSerial.value = null;
+    clearClientBindings();
+    resetTargetState(null);
+    await detachConsoleLease(previousSerial);
   }
 
   async function evaluate(expression: string) {
@@ -530,11 +649,15 @@ export const useConsoleStore = defineStore("console", () => {
     exceptions,
     replHistory,
     boundTargetId,
+    leasedTargetId,
     isReady,
     error,
     activeTarget,
     activeTargetLabel,
     initialize,
+    syncLease,
+    acquireLease,
+    releaseLease,
     evaluate,
     clearConsole,
     clearExceptions,

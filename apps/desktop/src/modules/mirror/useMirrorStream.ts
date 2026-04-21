@@ -2,6 +2,7 @@ import { computed, onUnmounted, ref } from "vue";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { toast } from "vue-sonner";
 import { useCDP } from "@/composables/useCDP";
+import { runSessionEffect, startMirrorLeaseEffect, stopMirrorLeaseEffect } from "@/runtime/session";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useMirrorStore } from "@/stores/mirror.store";
 import { useSourceStore } from "@/stores/source.store";
@@ -98,6 +99,25 @@ export function useMirrorStream() {
   let chromeDrawInFlight = false;
   let pointerDown = false;
   let chromePollTimer: ReturnType<typeof setInterval> | null = null;
+  let adbLeaseSerial: string | null = null;
+
+  async function beginMirrorLease(serial: string) {
+    await runSessionEffect(startMirrorLeaseEffect(serial), {
+      operation: "session.startMirrorLease",
+    });
+    adbLeaseSerial = serial;
+  }
+
+  async function endMirrorLease(serial: string) {
+    try {
+      await runSessionEffect(stopMirrorLeaseEffect(serial), {
+        operation: "session.stopMirrorLease",
+      });
+    } catch {}
+    if (adbLeaseSerial === serial) {
+      adbLeaseSerial = null;
+    }
+  }
 
   function b64ToBytes(b64: string): Uint8Array {
     const binary = atob(b64);
@@ -442,9 +462,7 @@ export function useMirrorStream() {
   async function failScrcpy(serial: string, reason: string, id: number) {
     if (id !== sessionId) return;
     clearStartupTimeout();
-    try {
-      await invoke("adb_mirror_scrcpy_stop", { serial });
-    } catch {}
+    await endMirrorLease(serial);
     cleanupScrcpyDecoder();
     cleanupChromeFrameQueue();
     cleanupChromePolling();
@@ -466,6 +484,7 @@ export function useMirrorStream() {
       typeof EncodedVideoChunk !== "undefined";
     if (!canUseWebCodecs) {
       const msg = "WebCodecs is not available on this platform.";
+      await endMirrorLease(serial);
       error.value = msg;
       toast.error("Mirror unavailable", { description: msg });
       return;
@@ -575,6 +594,7 @@ export function useMirrorStream() {
       }, 2200);
     } catch (startErr) {
       if (activeSessionId !== sessionId) return;
+      await endMirrorLease(serial);
       error.value = String(startErr);
       toast.error("Mirror failed to start", { description: String(startErr) });
     }
@@ -743,6 +763,7 @@ export function useMirrorStream() {
     isConnected.value = false;
     mirrorStore.isStreaming = false;
     streamSource.value = null;
+    adbLeaseSerial = null;
 
     const preferredSource = resolvePreferredSource();
     if (!preferredSource) {
@@ -774,6 +795,14 @@ export function useMirrorStream() {
       streamSource.value = null;
       return;
     }
+    try {
+      await beginMirrorLease(serial);
+    } catch (leaseErr) {
+      error.value = String(leaseErr);
+      toast.error("Mirror unavailable", { description: String(leaseErr) });
+      streamSource.value = null;
+      return;
+    }
     await startAdbStream(serial, activeSessionId);
   }
 
@@ -782,11 +811,8 @@ export function useMirrorStream() {
     const source = streamSource.value;
 
     if (source === "adb") {
-      const serial = resolveAdbSerial();
-      if (serial) {
-        try {
-          await invoke("adb_mirror_scrcpy_stop", { serial });
-        } catch {}
+      if (adbLeaseSerial) {
+        await endMirrorLease(adbLeaseSerial);
       }
     }
 

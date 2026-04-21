@@ -6,6 +6,7 @@ import type { AdbPackage, DeviceInfo, ReverseRule, WebViewSocket } from "@/types
 import type {
   SessionDeviceSnapshot,
   SessionEvent,
+  SessionLeaseState,
   SessionRegistrySnapshot,
   SessionTargetSnapshot,
 } from "@/types/session.types";
@@ -86,6 +87,38 @@ export function listTargetsEffect(serial: string) {
 
 export function refreshTargetsEffect(serial: string) {
   return invokeEffect<SessionTargetSnapshot[]>("session_refresh_targets", { serial });
+}
+
+export function startLogcatLeaseEffect(serial: string) {
+  return invokeEffect<SessionLeaseState>("session_start_logcat_lease", { serial });
+}
+
+export function stopLogcatLeaseEffect(serial: string) {
+  return invokeEffect<SessionLeaseState>("session_stop_logcat_lease", { serial });
+}
+
+export function startPerfLeaseEffect(serial: string) {
+  return invokeEffect<SessionLeaseState>("session_start_perf_lease", { serial });
+}
+
+export function stopPerfLeaseEffect(serial: string) {
+  return invokeEffect<SessionLeaseState>("session_stop_perf_lease", { serial });
+}
+
+export function startMirrorLeaseEffect(serial: string) {
+  return invokeEffect<SessionLeaseState>("session_start_mirror_lease", { serial });
+}
+
+export function stopMirrorLeaseEffect(serial: string) {
+  return invokeEffect<SessionLeaseState>("session_stop_mirror_lease", { serial });
+}
+
+export function attachConsoleTargetEffect(serial: string, targetId: string) {
+  return invokeEffect<SessionLeaseState>("session_attach_console_target", { serial, targetId });
+}
+
+export function detachConsoleTargetEffect(serial: string) {
+  return invokeEffect<SessionLeaseState>("session_detach_console_target", { serial });
 }
 
 export function subscribeSessionEventsEffect(onEvent: (event: SessionEvent) => void) {

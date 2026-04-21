@@ -687,11 +687,15 @@ pub async fn adb_mirror_scrcpy_start(
     Ok((width, height))
 }
 
+pub(crate) async fn stop_mirror_session(serial: &str) -> Result<(), String> {
+    stop_scrcpy_stream_session(serial);
+    cleanup_scrcpy_device(serial).await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn adb_mirror_scrcpy_stop(serial: String) -> Result<(), String> {
-    stop_scrcpy_stream_session(&serial);
-    cleanup_scrcpy_device(&serial).await;
-    Ok(())
+    stop_mirror_session(&serial).await
 }
 
 // ── Single screenshot ─────────────────────────────────────────────────────────

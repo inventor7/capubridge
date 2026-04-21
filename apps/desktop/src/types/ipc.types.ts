@@ -34,6 +34,14 @@ export type {
 // invoke('adb_list_reverse', { serial: string }): Promise<{ remotePort: number; localPort: number }[]>
 // invoke('start_logcat', { serial: string }): Promise<void>
 // invoke('stop_logcat', { serial: string }): Promise<void>
+// invoke('session_start_logcat_lease', { serial: string }): Promise<SessionLeaseState>
+// invoke('session_stop_logcat_lease', { serial: string }): Promise<SessionLeaseState>
+// invoke('session_start_perf_lease', { serial: string }): Promise<SessionLeaseState>
+// invoke('session_stop_perf_lease', { serial: string }): Promise<SessionLeaseState>
+// invoke('session_start_mirror_lease', { serial: string }): Promise<SessionLeaseState>
+// invoke('session_stop_mirror_lease', { serial: string }): Promise<SessionLeaseState>
+// invoke('session_attach_console_target', { serial: string, targetId: string }): Promise<SessionLeaseState>
+// invoke('session_detach_console_target', { serial: string }): Promise<SessionLeaseState>
 
 // Chrome commands
 // invoke('chrome_find'): Promise<ChromeFindResult>

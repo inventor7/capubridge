@@ -1,5 +1,5 @@
 use adb_client::{server_device::ADBServerDevice, ADBDeviceExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,14 +25,14 @@ fn shell(device: &mut ADBServerDevice, cmd: &str) -> Result<String, String> {
 
 // ── Metric types ──────────────────────────────────────────────────────────────
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct CpuCoreMetric {
     pub core: u32,
     pub usage: f32,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MemMetric {
     pub total_kb: u64,
@@ -41,14 +41,14 @@ pub struct MemMetric {
     pub used_pct: f32,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct NetMetric {
     pub rx_bps: f64,
     pub tx_bps: f64,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BatteryMetric {
     pub level: u32,
@@ -56,7 +56,7 @@ pub struct BatteryMetric {
     pub charging: bool,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PerfMetrics {
     pub cpu_cores: Vec<CpuCoreMetric>,
@@ -327,7 +327,7 @@ struct PerfSession {
 static PERF_SESSIONS: LazyLock<Mutex<HashMap<String, PerfSession>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn stop_perf_session(serial: &str) {
+pub(crate) fn stop_perf_session(serial: &str) {
     if let Ok(mut sessions) = PERF_SESSIONS.lock() {
         if let Some(s) = sessions.remove(serial) {
             s.stop_flag.store(true, Ordering::Relaxed);
@@ -335,10 +335,17 @@ fn stop_perf_session(serial: &str) {
     }
 }
 
-// ── Tauri commands ─────────────────────────────────────────────────────────────
-
-#[tauri::command]
-pub async fn adb_perf_start(serial: String, app: AppHandle) -> Result<(), String> {
+pub(crate) async fn start_perf_session_with_callbacks<FMetric, FError, FStopped>(
+    serial: String,
+    on_metric: FMetric,
+    on_error: FError,
+    on_stopped: FStopped,
+) -> Result<(), String>
+where
+    FMetric: Fn(PerfMetrics) + Send + 'static,
+    FError: Fn(String) + Send + 'static,
+    FStopped: Fn(String) + Send + 'static,
+{
     stop_perf_session(&serial);
 
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -446,10 +453,10 @@ pub async fn adb_perf_start(serial: String, app: AppHandle) -> Result<(), String
                         timestamp,
                     };
 
-                    let _ = app.emit("perf:metrics", metrics);
+                    on_metric(metrics);
                 }
                 Ok(Err(e)) => {
-                    let _ = app.emit("perf:error", e);
+                    on_error(e);
                     break;
                 }
                 _ => break,
@@ -461,10 +468,29 @@ pub async fn adb_perf_start(serial: String, app: AppHandle) -> Result<(), String
         if let Ok(mut sessions) = PERF_SESSIONS.lock() {
             sessions.remove(&serial_clone);
         }
-        let _ = app.emit("perf:stopped", serial_clone);
+        on_stopped(serial_clone);
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn adb_perf_start(serial: String, app: AppHandle) -> Result<(), String> {
+    let metric_app = app.clone();
+    let error_app = app.clone();
+    start_perf_session_with_callbacks(
+        serial,
+        move |metrics| {
+            let _ = metric_app.emit("perf:metrics", metrics);
+        },
+        move |message| {
+            let _ = error_app.emit("perf:error", message);
+        },
+        move |serial| {
+            let _ = app.emit("perf:stopped", serial);
+        },
+    )
+    .await
 }
 
 #[tauri::command]

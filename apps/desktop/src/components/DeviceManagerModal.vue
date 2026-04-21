@@ -507,7 +507,9 @@ watch(
   () => devicesStore.adbServerStatus,
   (status, prev) => {
     if (status === "starting") {
-      adbToastId = toast.loading("Starting ADB server…", { duration: Infinity });
+      adbToastId = toast.loading("Starting ADB server…", {
+        duration: Infinity,
+      });
     } else if (status === "running" && prev === "starting") {
       if (adbToastId !== undefined) toast.dismiss(adbToastId);
       toast.success("ADB server ready");
@@ -542,9 +544,6 @@ watch(
         await handleRefreshDevices();
         if (!props.open || runId !== openRunId.value) {
           return;
-        }
-        if (activePanel.value !== "connect") {
-          await handleRefreshTargets();
         }
       })();
     } else {
@@ -1094,7 +1093,9 @@ watch(
                   >
                     <RefreshCw
                       :size="9"
-                      :class="{ 'animate-spin': scanningTargets || isFetchingTargets }"
+                      :class="{
+                        'animate-spin': scanningTargets || isFetchingTargets,
+                      }"
                     />
                     Refresh
                   </button>

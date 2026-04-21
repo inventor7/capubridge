@@ -1,3 +1,6 @@
+import type { LogcatEntry } from "@/types/console.types";
+import type { PerfMetrics } from "@/types/perf.types";
+
 export type SessionTrackerStatus = "stopped" | "starting" | "running" | "error";
 
 export type SessionTemperature = "cold" | "warm" | "hot";
@@ -53,7 +56,42 @@ export interface SessionTargetSnapshot {
   lastUpdatedAt: number;
 }
 
-export type SessionEvent = {
-  type: "registryUpdated";
-  snapshot: SessionRegistrySnapshot;
-};
+export type SessionLeaseKind = "logcat" | "perf" | "mirror" | "console";
+
+export interface SessionLeaseState {
+  serial: string;
+  kind: SessionLeaseKind;
+  active: boolean;
+  targetId?: string | null;
+  updatedAt: number;
+}
+
+export type SessionEvent =
+  | {
+      type: "registryUpdated";
+      snapshot: SessionRegistrySnapshot;
+    }
+  | {
+      type: "leaseStateChanged";
+      lease: SessionLeaseState;
+    }
+  | {
+      type: "logcatEntry";
+      serial: string;
+      entry: LogcatEntry;
+    }
+  | {
+      type: "logcatError";
+      serial: string;
+      message: string;
+    }
+  | {
+      type: "perfMetrics";
+      serial: string;
+      metrics: PerfMetrics;
+    }
+  | {
+      type: "perfError";
+      serial: string;
+      message: string;
+    };

@@ -13,8 +13,8 @@ use crate::session::device_session::DeviceSession;
 use crate::session::events::emit_registry_snapshot;
 use crate::session::guards::require_online_session;
 use crate::session::types::{
-    SessionDeviceSnapshot, SessionRegistrySnapshot, SessionTargetSnapshot, SessionTemperature,
-    SessionTrackerStatus,
+    SessionDeviceSnapshot, SessionLeaseKind, SessionLeaseState, SessionRegistrySnapshot,
+    SessionTargetSnapshot, SessionTemperature, SessionTrackerStatus,
 };
 
 fn now_millis() -> u64 {
@@ -73,11 +73,20 @@ fn to_session_device(
 #[derive(Debug)]
 struct SessionRegistryInner {
     devices: HashMap<String, SessionDeviceSnapshot>,
+    leases: HashMap<String, DeviceLeaseState>,
     active_serial: Option<String>,
     tracker_status: SessionTrackerStatus,
     revision: u64,
     last_error: Option<String>,
     updated_at: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DeviceLeaseState {
+    logcat_active: bool,
+    perf_active: bool,
+    mirror_active: bool,
+    console_target_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -96,6 +105,7 @@ impl SessionRegistry {
         Self {
             inner: RwLock::new(SessionRegistryInner {
                 devices: HashMap::new(),
+                leases: HashMap::new(),
                 active_serial: None,
                 tracker_status: SessionTrackerStatus::Stopped,
                 revision: 0,
@@ -148,6 +158,10 @@ impl SessionRegistry {
             .entry(serial.to_string())
             .or_insert_with(|| session.clone())
             .clone()
+    }
+
+    pub fn active_serial(&self) -> Option<String> {
+        self.inner.read().active_serial.clone()
     }
 
     pub fn set_active_serial(
@@ -213,6 +227,10 @@ impl SessionRegistry {
 
             for device in devices {
                 self.ensure_session(&device.serial);
+                inner
+                    .leases
+                    .entry(device.serial.clone())
+                    .or_insert_with(DeviceLeaseState::default);
                 inner.devices.insert(
                     device.serial.clone(),
                     to_session_device(device, active_serial.as_deref(), timestamp),
@@ -267,6 +285,11 @@ impl SessionRegistry {
                 .cloned()
                 .map(|device| (device.serial.clone(), device))
                 .collect();
+            inner.leases = snapshot
+                .devices
+                .iter()
+                .map(|device| (device.serial.clone(), DeviceLeaseState::default()))
+                .collect();
             inner.active_serial = snapshot.active_serial.clone();
             inner.tracker_status = snapshot.tracker_status.clone();
             inner.revision = snapshot.revision;
@@ -286,6 +309,78 @@ impl SessionRegistry {
         if let Err(error) = cache_store.save_registry_snapshot(snapshot) {
             log::warn!("[session-cache] Failed to persist registry snapshot: {error}");
         }
+    }
+
+    fn set_lease_state(
+        &self,
+        serial: &str,
+        kind: SessionLeaseKind,
+        active: bool,
+        target_id: Option<String>,
+    ) -> Result<SessionLeaseState, String> {
+        let updated_at = now_millis();
+        let mut inner = self.inner.write();
+        if !inner.devices.contains_key(serial) {
+            return Err(format!("Unknown device serial: {serial}"));
+        }
+
+        let leases = inner
+            .leases
+            .entry(serial.to_string())
+            .or_insert_with(DeviceLeaseState::default);
+
+        match kind {
+            SessionLeaseKind::Logcat => leases.logcat_active = active,
+            SessionLeaseKind::Perf => leases.perf_active = active,
+            SessionLeaseKind::Mirror => leases.mirror_active = active,
+            SessionLeaseKind::Console => {
+                leases.console_target_id = if active { target_id.clone() } else { None };
+            }
+        }
+
+        Ok(SessionLeaseState {
+            serial: serial.to_string(),
+            kind,
+            active,
+            target_id: target_id.filter(|value| !value.is_empty()),
+            updated_at,
+        })
+    }
+
+    pub fn set_logcat_lease(
+        &self,
+        serial: &str,
+        active: bool,
+    ) -> Result<SessionLeaseState, String> {
+        self.set_lease_state(serial, SessionLeaseKind::Logcat, active, None)
+    }
+
+    pub fn set_perf_lease(
+        &self,
+        serial: &str,
+        active: bool,
+    ) -> Result<SessionLeaseState, String> {
+        self.set_lease_state(serial, SessionLeaseKind::Perf, active, None)
+    }
+
+    pub fn set_mirror_lease(
+        &self,
+        serial: &str,
+        active: bool,
+    ) -> Result<SessionLeaseState, String> {
+        self.set_lease_state(serial, SessionLeaseKind::Mirror, active, None)
+    }
+
+    pub fn attach_console_target(
+        &self,
+        serial: &str,
+        target_id: String,
+    ) -> Result<SessionLeaseState, String> {
+        self.set_lease_state(serial, SessionLeaseKind::Console, true, Some(target_id))
+    }
+
+    pub fn detach_console_target(&self, serial: &str) -> Result<SessionLeaseState, String> {
+        self.set_lease_state(serial, SessionLeaseKind::Console, false, None)
     }
 }
 

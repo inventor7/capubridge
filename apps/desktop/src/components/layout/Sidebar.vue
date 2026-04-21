@@ -4,7 +4,6 @@ import { useRoute } from "vue-router";
 import { Smartphone, Database, Globe, Zap, Crosshair, Settings } from "lucide-vue-next";
 import {
   SidebarContent,
-  SidebarFooter,
   SidebarMenu,
   SidebarMenuItem,
   SidebarSeparator,

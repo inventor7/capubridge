@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { Copy, RefreshCw, Search, Trash2 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,18 @@ const activeLevel = ref<ConsoleEntryLevel | "all">("all");
 
 onMounted(() => {
   void consoleStore.initialize();
+  void consoleStore.acquireLease();
+});
+
+watch(
+  () => consoleStore.activeTarget?.id ?? null,
+  () => {
+    void consoleStore.syncLease(consoleStore.activeTarget ?? null);
+  },
+);
+
+onUnmounted(() => {
+  void consoleStore.releaseLease();
 });
 
 const levelCounts = computed(() => ({

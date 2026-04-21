@@ -993,14 +993,23 @@ fn read_logcat_dump(
     Ok(parse_logcat_dump(serial, &dump, pid_cache))
 }
 
-fn stop_logcat_session(serial: &str) {
+pub(crate) fn stop_logcat_session(serial: &str) {
     if let Some(stop_flag) = LOGCAT_SESSIONS.lock().remove(serial) {
         stop_flag.store(true, Ordering::Relaxed);
     }
 }
 
-#[tauri::command]
-pub fn start_logcat(serial: String, app: AppHandle) -> Result<(), String> {
+pub(crate) fn start_logcat_session_with_callbacks<FEntry, FError, FStopped>(
+    serial: String,
+    on_entry: FEntry,
+    on_error: FError,
+    on_stopped: FStopped,
+) -> Result<(), String>
+where
+    FEntry: Fn(LogcatEntryPayload) + Send + 'static,
+    FError: Fn(LogcatErrorPayload) + Send + 'static,
+    FStopped: Fn(String) + Send + 'static,
+{
     stop_logcat_session(&serial);
 
     let stop_flag = Arc::new(AtomicBool::new(false));
@@ -1031,17 +1040,14 @@ pub fn start_logcat(serial: String, app: AppHandle) -> Result<(), String> {
                         }
 
                         order.push_back(entry.id.clone());
-                        let _ = app.emit("logcat:line", entry);
+                        on_entry(entry);
                     }
                 }
                 Err(message) => {
-                    let _ = app.emit(
-                        "logcat:error",
-                        LogcatErrorPayload {
-                            serial: serial_clone.clone(),
-                            message,
-                        },
-                    );
+                    on_error(LogcatErrorPayload {
+                        serial: serial_clone.clone(),
+                        message,
+                    });
                     break;
                 }
             }
@@ -1056,10 +1062,28 @@ pub fn start_logcat(serial: String, app: AppHandle) -> Result<(), String> {
         {
             sessions.remove(&serial_clone);
         }
-        let _ = app.emit("logcat:stopped", serial_clone);
+        on_stopped(serial_clone);
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn start_logcat(serial: String, app: AppHandle) -> Result<(), String> {
+    let line_app = app.clone();
+    let error_app = app.clone();
+    start_logcat_session_with_callbacks(
+        serial,
+        move |entry| {
+            let _ = line_app.emit("logcat:line", entry);
+        },
+        move |payload| {
+            let _ = error_app.emit("logcat:error", payload);
+        },
+        move |serial| {
+            let _ = app.emit("logcat:stopped", serial);
+        },
+    )
 }
 
 #[tauri::command]

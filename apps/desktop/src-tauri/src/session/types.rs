@@ -1,3 +1,5 @@
+use crate::commands::adb::LogcatEntryPayload;
+use crate::commands::perf::PerfMetrics;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -63,8 +65,32 @@ pub struct SessionTargetSnapshot {
     pub last_updated_at: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionLeaseKind {
+    Logcat,
+    Perf,
+    Mirror,
+    Console,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLeaseState {
+    pub serial: String,
+    pub kind: SessionLeaseKind,
+    pub active: bool,
+    pub target_id: Option<String>,
+    pub updated_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum SessionEvent {
     RegistryUpdated { snapshot: SessionRegistrySnapshot },
+    LeaseStateChanged { lease: SessionLeaseState },
+    LogcatEntry { serial: String, entry: LogcatEntryPayload },
+    LogcatError { serial: String, message: String },
+    PerfMetrics { serial: String, metrics: PerfMetrics },
+    PerfError { serial: String, message: String },
 }

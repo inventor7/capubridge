@@ -4,6 +4,7 @@ import type { AdbPackage, DeviceInfo, ReverseRule, WebViewSocket } from "@/types
 import type {
   SessionDeviceSnapshot,
   SessionEvent,
+  SessionLeaseState,
   SessionRegistrySnapshot,
   SessionTargetSnapshot,
 } from "@/types/session.types";
@@ -54,6 +55,17 @@ export interface SessionBridgeService {
   listWebViewSockets: (serial: string) => Effect.Effect<WebViewSocket[], TauriInvokeError>;
   listTargets: (serial: string) => Effect.Effect<SessionTargetSnapshot[], TauriInvokeError>;
   refreshTargets: (serial: string) => Effect.Effect<SessionTargetSnapshot[], TauriInvokeError>;
+  startLogcatLease: (serial: string) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
+  stopLogcatLease: (serial: string) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
+  startPerfLease: (serial: string) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
+  stopPerfLease: (serial: string) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
+  startMirrorLease: (serial: string) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
+  stopMirrorLease: (serial: string) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
+  attachConsoleTarget: (
+    serial: string,
+    targetId: string,
+  ) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
+  detachConsoleTarget: (serial: string) => Effect.Effect<SessionLeaseState, TauriInvokeError>;
   subscribe: (
     onEvent: (event: SessionEvent) => void,
   ) => Effect.Effect<() => void, TauriListenError>;

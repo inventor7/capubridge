@@ -5,6 +5,7 @@ import type { AdbPackage, DeviceInfo, ReverseRule, WebViewSocket } from "@/types
 import type {
   SessionDeviceSnapshot,
   SessionEvent,
+  SessionLeaseState,
   SessionRegistrySnapshot,
   SessionTargetSnapshot,
 } from "@/types/session.types";
@@ -44,6 +45,22 @@ export const SessionBridgeLive = Layer.succeed(SessionBridge, {
     invokeEffect<SessionTargetSnapshot[]>("session_list_targets", { serial }),
   refreshTargets: (serial: string) =>
     invokeEffect<SessionTargetSnapshot[]>("session_refresh_targets", { serial }),
+  startLogcatLease: (serial: string) =>
+    invokeEffect<SessionLeaseState>("session_start_logcat_lease", { serial }),
+  stopLogcatLease: (serial: string) =>
+    invokeEffect<SessionLeaseState>("session_stop_logcat_lease", { serial }),
+  startPerfLease: (serial: string) =>
+    invokeEffect<SessionLeaseState>("session_start_perf_lease", { serial }),
+  stopPerfLease: (serial: string) =>
+    invokeEffect<SessionLeaseState>("session_stop_perf_lease", { serial }),
+  startMirrorLease: (serial: string) =>
+    invokeEffect<SessionLeaseState>("session_start_mirror_lease", { serial }),
+  stopMirrorLease: (serial: string) =>
+    invokeEffect<SessionLeaseState>("session_stop_mirror_lease", { serial }),
+  attachConsoleTarget: (serial: string, targetId: string) =>
+    invokeEffect<SessionLeaseState>("session_attach_console_target", { serial, targetId }),
+  detachConsoleTarget: (serial: string) =>
+    invokeEffect<SessionLeaseState>("session_detach_console_target", { serial }),
   subscribe: (onEvent: (event: SessionEvent) => void) =>
     listenEffect<SessionEvent>(SESSION_EVENT_NAME, onEvent),
 });

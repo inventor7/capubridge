@@ -47,14 +47,7 @@ const fetchScope = computed<PackageFetchScope>(() =>
 const { PACKAGE_CACHE_STALE_MS, usePackages, refreshPackages, readPackagesCache } =
   useAppPackages(serial);
 
-const {
-  data: packages,
-  isLoading,
-  isFetching,
-  isError,
-  error,
-  refetch,
-} = usePackages(fetchScope.value);
+const { data: packages, isLoading, isFetching, isError, error, refetch } = usePackages(fetchScope);
 
 const isPackagesBusy = computed(() => isLoading.value || isFetching.value);
 

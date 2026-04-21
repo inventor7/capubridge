@@ -870,9 +870,17 @@ This order prioritizes runtime control first, then migrates expensive feature pa
 - [x] Phase 3 cache-only persistence implemented.
 - [x] Phase 4 target discovery migrated.
 - [x] Phase 5 package snapshots migrated.
-- [ ] Phase 6 live feature leases migrated.
+- [x] Phase 6 live feature leases migrated.
 - [ ] Phase 7 watcher cleanup completed.
 - [ ] Phase 8 docs and verification completed.
+
+Current phase 6 implementation status:
+
+- session lease commands added for logcat, perf, mirror, and console target attachment
+- logcat and perf frontend feeds moved onto typed session events
+- console and mirror flows now use explicit lease attach/start and teardown paths
+- app-level verification passed for logcat, perf, mirror, console, and device apps package/icon flows
+- next execution target is phase 7 watcher cleanup
 
 ---
 

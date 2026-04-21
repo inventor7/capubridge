@@ -1,31 +1,16 @@
 import { ref, computed, onUnmounted, watch } from "vue";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import {
+  runSessionEffect,
+  startPerfLeaseEffect,
+  stopPerfLeaseEffect,
+  subscribeSessionEventsEffect,
+} from "@/runtime/session";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useConnectionStore } from "@/stores/connection.store";
+import type { CpuCoreMetric, PerfMetrics } from "@/types/perf.types";
+import type { SessionEvent } from "@/types/session.types";
 
 const HISTORY = 60;
-
-export interface CpuCoreMetric {
-  core: number;
-  usage: number;
-}
-
-export interface PerfMetrics {
-  cpuCores: CpuCoreMetric[];
-  cpuTotal: number;
-  memory: {
-    totalKb: number;
-    availableKb: number;
-    usedKb: number;
-    usedPct: number;
-  };
-  network: { rxBps: number; txBps: number };
-  battery: { level: number; temperature: number; charging: boolean };
-  cpuTemp: number | null;
-  cpuTempSource?: string | null;
-  timestamp: number;
-}
 
 export type CdpMetricsStatus = "idle" | "waiting" | "active" | "degraded" | "error";
 
@@ -63,9 +48,9 @@ export function usePerfMetrics() {
   const cdpLastUpdatedAt = ref<number | null>(null);
   const cdpTargetId = ref<string | null>(null);
 
-  let unlisten: UnlistenFn | null = null;
-  let unlistenError: UnlistenFn | null = null;
-  let unlistenStopped: UnlistenFn | null = null;
+  let currentSerial: string | null = null;
+  let initializePromise: Promise<void> | null = null;
+  let stopSessionEvents: (() => void) | null = null;
   let cdpTimer: ReturnType<typeof setInterval> | null = null;
 
   function push<T>(arr: T[], val: T): T[] {
@@ -82,6 +67,14 @@ export function usePerfMetrics() {
       clearInterval(cdpTimer);
       cdpTimer = null;
     }
+  }
+
+  function resetCdpMetricsState(message = "Stopped") {
+    stopCdpMetricsPolling();
+    cdpMetricsStatus.value = "idle";
+    cdpMetricsMessage.value = message;
+    cdpMetricsSource.value = "none";
+    cdpTargetId.value = null;
   }
 
   function onMetrics(metrics: PerfMetrics) {
@@ -102,6 +95,64 @@ export function usePerfMetrics() {
     }
     perCoreLatest.value = cores;
     perCoreHistory.value = perCoreHistory.value.map((hist, i) => push(hist, cores[i]?.usage ?? 0));
+  }
+
+  function handleSessionEvent(event: SessionEvent) {
+    if (event.type === "perfMetrics") {
+      if (event.serial !== currentSerial) {
+        return;
+      }
+
+      onMetrics(event.metrics);
+      return;
+    }
+
+    if (event.type === "perfError") {
+      if (event.serial !== currentSerial) {
+        return;
+      }
+
+      error.value = event.message;
+      currentSerial = null;
+      isRunning.value = false;
+      return;
+    }
+
+    if (event.type === "leaseStateChanged") {
+      if (event.lease.kind !== "perf") {
+        return;
+      }
+
+      if (event.lease.serial !== currentSerial) {
+        return;
+      }
+
+      if (!event.lease.active) {
+        currentSerial = null;
+      }
+
+      isRunning.value = event.lease.active;
+    }
+  }
+
+  async function initialize() {
+    if (initializePromise) {
+      return initializePromise;
+    }
+
+    initializePromise = (async () => {
+      if (stopSessionEvents) {
+        return;
+      }
+
+      stopSessionEvents = await runSessionEffect(subscribeSessionEventsEffect(handleSessionEvent), {
+        operation: "session.subscribePerf",
+      });
+    })().finally(() => {
+      initializePromise = null;
+    });
+
+    return initializePromise;
   }
 
   async function startCdpMetrics() {
@@ -247,6 +298,7 @@ export function usePerfMetrics() {
   }
 
   async function start() {
+    await initialize();
     if (isRunning.value) return;
     const serial = devicesStore.selectedDevice?.serial;
     if (!serial) {
@@ -256,34 +308,18 @@ export function usePerfMetrics() {
     }
 
     error.value = null;
-    isRunning.value = true;
-
-    unlisten = await listen<PerfMetrics>("perf:metrics", (e) => {
-      onMetrics(e.payload);
-    });
-
-    unlistenError = await listen<string>("perf:error", (e) => {
-      console.error("[perf] device error event:", e.payload);
-      error.value = e.payload;
-      isRunning.value = false;
-    });
-
-    unlistenStopped = await listen<string>("perf:stopped", (_e) => {
-      isRunning.value = false;
-    });
+    currentSerial = serial;
 
     try {
-      await invoke("adb_perf_start", { serial });
+      await runSessionEffect(startPerfLeaseEffect(serial), {
+        operation: "session.startPerfLease",
+      });
+      isRunning.value = true;
     } catch (e) {
-      console.error("[perf] invoke adb_perf_start FAILED:", e);
+      console.error("[perf] start lease failed:", e);
       error.value = String(e);
+      currentSerial = null;
       isRunning.value = false;
-      unlisten?.();
-      unlisten = null;
-      unlistenError?.();
-      unlistenError = null;
-      unlistenStopped?.();
-      unlistenStopped = null;
       return;
     }
 
@@ -291,26 +327,25 @@ export function usePerfMetrics() {
   }
 
   async function stop() {
-    if (!isRunning.value) return;
-    isRunning.value = false;
-
-    const serial = devicesStore.selectedDevice?.serial;
-    if (serial) {
-      await invoke("adb_perf_stop", { serial }).catch((e) => console.warn("[perf] stop error:", e));
+    const serial = currentSerial;
+    if (!serial) {
+      isRunning.value = false;
+      resetCdpMetricsState();
+      return;
     }
 
-    unlisten?.();
-    unlisten = null;
-    unlistenError?.();
-    unlistenError = null;
-    unlistenStopped?.();
-    unlistenStopped = null;
+    isRunning.value = false;
+    currentSerial = null;
 
-    stopCdpMetricsPolling();
-    cdpMetricsStatus.value = "idle";
-    cdpMetricsMessage.value = "Stopped";
-    cdpMetricsSource.value = "none";
-    cdpTargetId.value = null;
+    try {
+      await runSessionEffect(stopPerfLeaseEffect(serial), {
+        operation: "session.stopPerfLease",
+      });
+    } catch (e) {
+      console.warn("[perf] stop lease error:", e);
+    }
+
+    resetCdpMetricsState();
   }
 
   watch(
@@ -320,11 +355,7 @@ export function usePerfMetrics() {
         void startCdpMetrics();
         return;
       }
-      stopCdpMetricsPolling();
-      cdpMetricsStatus.value = "idle";
-      cdpMetricsMessage.value = "Stopped";
-      cdpMetricsSource.value = "none";
-      cdpTargetId.value = null;
+      resetCdpMetricsState();
     },
   );
 
@@ -338,7 +369,58 @@ export function usePerfMetrics() {
     },
   );
 
-  onUnmounted(() => void stop());
+  watch(
+    () => devicesStore.selectedDevice?.serial ?? null,
+    (nextSerial, previousSerial) => {
+      if (!isRunning.value) {
+        return;
+      }
+
+      if (nextSerial === previousSerial) {
+        return;
+      }
+
+      void (async () => {
+        if (previousSerial) {
+          try {
+            await runSessionEffect(stopPerfLeaseEffect(previousSerial), {
+              operation: "session.stopPerfLease",
+            });
+          } catch (e) {
+            console.warn("[perf] stop previous lease error:", e);
+          }
+        }
+
+        if (!nextSerial) {
+          currentSerial = null;
+          isRunning.value = false;
+          return;
+        }
+
+        currentSerial = nextSerial;
+        error.value = null;
+
+        try {
+          await runSessionEffect(startPerfLeaseEffect(nextSerial), {
+            operation: "session.startPerfLease",
+          });
+          isRunning.value = true;
+          void startCdpMetrics();
+        } catch (e) {
+          console.error("[perf] restart lease failed:", e);
+          error.value = String(e);
+          currentSerial = null;
+          isRunning.value = false;
+        }
+      })();
+    },
+  );
+
+  onUnmounted(() => {
+    void stop();
+    stopSessionEvents?.();
+    stopSessionEvents = null;
+  });
 
   function toSeries(
     history: number[],
