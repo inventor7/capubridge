@@ -520,6 +520,9 @@ watch(
         activePanel.value = "device";
         void loadDeviceInfo(devicesStore.devices[0].serial);
       }
+      if (sourceStore.activeSources.length > 0) {
+        void handleRefreshTargets();
+      }
     } else {
       devicesStore.stopPolling();
     }
@@ -615,6 +618,12 @@ watch(
                   <span class="text-[12px] font-medium text-foreground truncate">
                     {{ d.model || d.serial }}
                   </span>
+                  <span
+                    v-if="d.isStale"
+                    class="ml-auto text-[9px] px-1.5 py-0.5 rounded-full border border-border/20 bg-surface-2 text-muted-foreground/45"
+                  >
+                    stale
+                  </span>
                 </div>
                 <div class="flex items-center gap-1 mt-0.5 pl-3">
                   <span class="font-mono text-[9px] text-muted-foreground/35 truncate">
@@ -698,7 +707,7 @@ watch(
                               : 'bg-surface-2 text-muted-foreground/40 border border-border/20'
                           "
                         >
-                          {{ selectedDevice.status }}
+                          {{ selectedDevice.isStale ? "stale" : selectedDevice.status }}
                         </span>
                       </div>
                       <div
@@ -801,7 +810,6 @@ watch(
                               :package-name="group.packageName"
                               :apk-path="getCachedPackage(group.packageName)?.apkPath ?? ''"
                               :icon-path="getCachedPackage(group.packageName)?.iconPath"
-                              :resolve="false"
                               size="sm"
                             />
                           </template>
@@ -856,7 +864,6 @@ watch(
                                 :package-name="t.packageName"
                                 :apk-path="getCachedPackage(t.packageName)?.apkPath ?? ''"
                                 :icon-path="getCachedPackage(t.packageName)?.iconPath"
-                                :resolve="false"
                                 size="sm"
                               />
                             </template>

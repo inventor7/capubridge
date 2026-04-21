@@ -124,11 +124,11 @@ export function useAppPackages(serial: { value: string } | string) {
   function usePackages(scope: PackageFetchScope = "third-party") {
     return useQuery({
       queryKey: computed(() => ["packages", activeSerial.value, scope]),
-      queryFn: async () => {
+      queryFn: async ({ signal }) => {
         const s = activeSerial.value;
         if (!s) return [];
 
-        const nextPackages = await listPackages(s, scope);
+        const nextPackages = await listPackages(s, scope, { signal });
         const updatedAt = Date.now();
         writePackagesCache(s, scope, nextPackages, updatedAt);
 

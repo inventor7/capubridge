@@ -40,7 +40,7 @@ export function useSessionPersistence() {
   );
 
   watch(
-    () => targetsStore.targets,
+    () => targetsStore.visibleTargets,
     async (targets) => {
       if (connectionStore.externalDevtoolsTargetId) {
         console.log("[session] skip restore; external devtools active", {

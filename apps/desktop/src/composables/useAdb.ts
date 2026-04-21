@@ -1,5 +1,28 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ADBDevice, AdbPackage, AdbPackageDetails, WebViewSocket } from "@/types/adb.types";
+import {
+  cancelListPackagesEffect,
+  getDeviceInfoEffect,
+  listPackagesEffect,
+  listReverseEffect,
+  listWebViewSocketsEffect,
+  openPackageEffect,
+  rebootEffect,
+  removeReverseEffect,
+  reverseEffect,
+  rootEffect,
+  runSessionEffect,
+  shellCommandEffect,
+  tcpipEffect,
+} from "@/runtime/session";
+import type { SessionRequestOptions } from "@/runtime/effect/cancellation";
+import { isSessionInterruptedError } from "@/runtime/effect/tags";
+import type {
+  ADBDevice,
+  AdbPackage,
+  AdbPackageDetails,
+  ReverseRule,
+  WebViewSocket,
+} from "@/types/adb.types";
 
 export type { WebViewSocket };
 export type PackageListScope = "third-party" | "all";
@@ -23,21 +46,15 @@ export function useAdb() {
     return await invoke<ADBDevice[]>("adb_list_devices");
   }
 
-  async function getDeviceOverview(deviceId: string): Promise<DeviceOverview | null> {
+  async function getDeviceOverview(
+    deviceId: string,
+    options?: Omit<SessionRequestOptions, "operation">,
+  ): Promise<DeviceOverview | null> {
     try {
-      const info = await invoke<{
-        model: string;
-        manufacturer: string;
-        androidVersion: string;
-        apiLevel: number;
-        serial: string;
-        screenResolution: string;
-        ipAddresses: string[];
-        availableStorage: number;
-        totalStorage: number;
-        totalRam: number;
-        cpuArch: string;
-      }>("adb_get_device_info", { serial: deviceId });
+      const info = await runSessionEffect(getDeviceInfoEffect(deviceId), {
+        operation: "session.getDeviceInfo",
+        signal: options?.signal,
+      });
 
       return {
         name: info.model || "",
@@ -53,13 +70,23 @@ export function useAdb() {
         totalRam: info.totalRam ?? 0,
       };
     } catch (err) {
+      if (isSessionInterruptedError(err)) {
+        throw err;
+      }
       console.error("Failed to get device overview:", err);
       return null;
     }
   }
 
-  async function shellCommand(serial: string, command: string): Promise<string> {
-    return await invoke<string>("adb_shell_command", { serial, command });
+  async function shellCommand(
+    serial: string,
+    command: string,
+    options?: Omit<SessionRequestOptions, "operation">,
+  ): Promise<string> {
+    return runSessionEffect(shellCommandEffect(serial, command), {
+      operation: "session.shellCommand",
+      signal: options?.signal,
+    });
   }
 
   async function connectDevice(host: string, port: number) {
@@ -75,15 +102,21 @@ export function useAdb() {
   }
 
   async function tcpip(serial: string, port = 5555) {
-    await invoke("adb_tcpip", { serial, port });
+    await runSessionEffect(tcpipEffect(serial, port), {
+      operation: "session.tcpip",
+    });
   }
 
   async function root(serial: string) {
-    await invoke("adb_root", { serial });
+    await runSessionEffect(rootEffect(serial), {
+      operation: "session.root",
+    });
   }
 
   async function reboot(serial: string, mode?: "recovery" | "bootloader") {
-    await invoke("adb_reboot", { serial, mode });
+    await runSessionEffect(rebootEffect(serial, mode), {
+      operation: "session.reboot",
+    });
   }
 
   async function restartServer() {
@@ -93,12 +126,22 @@ export function useAdb() {
   async function listPackages(
     serial: string,
     scope: PackageListScope = "all",
+    options?: Omit<SessionRequestOptions, "operation">,
   ): Promise<AdbPackage[]> {
-    return invoke<AdbPackage[]>("adb_list_packages", { serial, scope });
+    return runSessionEffect(listPackagesEffect(serial, scope), {
+      operation: "session.listPackages",
+      signal: options?.signal,
+    });
   }
 
-  async function cancelListPackages(serial: string): Promise<void> {
-    await invoke("adb_cancel_list_packages", { serial });
+  async function cancelListPackages(
+    serial: string,
+    options?: Omit<SessionRequestOptions, "operation">,
+  ): Promise<void> {
+    await runSessionEffect(cancelListPackagesEffect(serial), {
+      operation: "session.cancelListPackages",
+      signal: options?.signal,
+    });
   }
 
   async function getPackageDetails(
@@ -109,11 +152,19 @@ export function useAdb() {
   }
 
   async function openPackage(serial: string, packageName: string): Promise<string> {
-    return invoke<string>("adb_open_package", { serial, packageName });
+    return runSessionEffect(openPackageEffect(serial, packageName), {
+      operation: "session.openPackage",
+    });
   }
 
-  async function listWebViewSockets(serial: string): Promise<WebViewSocket[]> {
-    return invoke<WebViewSocket[]>("adb_list_webview_sockets", { serial });
+  async function listWebViewSockets(
+    serial: string,
+    options?: Omit<SessionRequestOptions, "operation">,
+  ): Promise<WebViewSocket[]> {
+    return runSessionEffect(listWebViewSocketsEffect(serial), {
+      operation: "session.listWebViewSockets",
+      signal: options?.signal,
+    });
   }
 
   async function forward(serial: string, local: string, _remote: string) {
@@ -121,15 +172,21 @@ export function useAdb() {
   }
 
   async function reverse(serial: string, remotePort: number, localPort: number): Promise<void> {
-    await invoke("adb_reverse", { serial, remotePort, localPort });
+    await runSessionEffect(reverseEffect(serial, remotePort, localPort), {
+      operation: "session.reverse",
+    });
   }
 
   async function removeReverse(serial: string, remotePort: number): Promise<void> {
-    await invoke("adb_remove_reverse", { serial, remotePort });
+    await runSessionEffect(removeReverseEffect(serial, remotePort), {
+      operation: "session.removeReverse",
+    });
   }
 
-  async function listReverse(serial: string): Promise<{ remotePort: number; localPort: number }[]> {
-    return invoke<{ remotePort: number; localPort: number }[]>("adb_list_reverse", { serial });
+  async function listReverse(serial: string): Promise<ReverseRule[]> {
+    return runSessionEffect(listReverseEffect(serial), {
+      operation: "session.listReverse",
+    });
   }
 
   return {

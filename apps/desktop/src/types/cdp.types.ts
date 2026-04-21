@@ -9,6 +9,8 @@ export interface CDPTarget {
   deviceSerial?: string;
   faviconUrl?: string;
   packageName?: string;
+  isStale?: boolean;
+  lastUpdatedAt?: number;
 }
 
 export interface CDPConnection {

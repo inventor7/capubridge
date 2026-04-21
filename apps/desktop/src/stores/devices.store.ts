@@ -1,25 +1,57 @@
-import { ref, computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 import { invoke } from "@tauri-apps/api/core";
-import { useAdb } from "@/composables/useAdb";
 import type { ADBDevice } from "@/types/adb.types";
+import { useSessionStore } from "@/stores/session.store";
 
 export type AdbServerStatus = "unknown" | "running" | "starting" | "error";
 
 export const useDevicesStore = defineStore("devices", () => {
-  const devices = ref<ADBDevice[]>([]);
-  const selectedDevice = ref<ADBDevice | null>(null);
+  const sessionStore = useSessionStore();
   const isPolling = ref(false);
   const error = ref<string | null>(null);
-  const adbServerStatus = ref<AdbServerStatus>("unknown");
+  const statusOverride = ref<AdbServerStatus | null>(null);
 
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
   let serverStartPromise: Promise<boolean> | null = null;
-  let refreshInFlight = false;
+  const devices = computed(() => sessionStore.devices);
+  const selectedDevice = computed(() => sessionStore.selectedDevice);
+  const onlineDevices = computed(() => sessionStore.onlineDevices);
+  const adbServerStatus = computed<AdbServerStatus>(() => {
+    if (statusOverride.value) {
+      return statusOverride.value;
+    }
+    if (!sessionStore.isInitialized) {
+      return "unknown";
+    }
+    if (sessionStore.trackerStatus === "starting") {
+      return "starting";
+    }
+    if (sessionStore.trackerStatus === "running") {
+      return "running";
+    }
+    if (sessionStore.trackerStatus === "error") {
+      return "error";
+    }
+    return "unknown";
+  });
 
-  const { refreshDevices: fetchDevices } = useAdb();
+  watch(
+    () => sessionStore.lastError,
+    (nextError) => {
+      if (nextError) {
+        error.value = nextError;
+      }
+    },
+  );
 
-  const onlineDevices = computed(() => devices.value.filter((d) => d.status === "online"));
+  watch(
+    () => sessionStore.trackerStatus,
+    (status) => {
+      if (status === "running" || status === "error") {
+        statusOverride.value = null;
+      }
+    },
+  );
 
   function isConnectionError(msg: string): boolean {
     return (
@@ -35,14 +67,14 @@ export const useDevicesStore = defineStore("devices", () => {
       return serverStartPromise;
     }
 
-    adbServerStatus.value = "starting";
+    statusOverride.value = "starting";
     serverStartPromise = (invoke("adb_start_server") as Promise<string>)
       .then(() => {
-        adbServerStatus.value = "running";
+        statusOverride.value = "running";
         return true;
       })
       .catch(() => {
-        adbServerStatus.value = "error";
+        statusOverride.value = "error";
         return false;
       })
       .finally(() => {
@@ -53,66 +85,50 @@ export const useDevicesStore = defineStore("devices", () => {
   }
 
   async function refreshDevices() {
-    if (refreshInFlight) return;
-    refreshInFlight = true;
+    await sessionStore.initialize();
     try {
-      const result = await fetchDevices();
-      devices.value = result;
+      await sessionStore.refreshDevices();
       error.value = null;
-      if (adbServerStatus.value !== "running") {
-        adbServerStatus.value = "running";
-      }
-
-      if (
-        selectedDevice.value &&
-        !devices.value.find((d) => d.serial === selectedDevice.value!.serial)
-      ) {
-        selectedDevice.value = null;
-      }
     } catch (err) {
       const msg = String(err);
       if (isConnectionError(msg)) {
         const ok = await startServer();
         if (ok) {
           try {
-            const result = await fetchDevices();
-            devices.value = result;
+            await sessionStore.refreshDevices();
             error.value = null;
           } catch (retryErr) {
             error.value = String(retryErr);
+            throw retryErr;
           }
+        } else {
+          error.value = msg;
+          throw err;
         }
       } else {
         error.value = msg;
         console.error("ADB list devices error:", err);
+        throw err;
       }
-    } finally {
-      refreshInFlight = false;
     }
   }
 
   function startPolling(intervalMs = 3000) {
-    if (isPolling.value) return;
+    void intervalMs;
     isPolling.value = true;
+    void sessionStore.initialize();
     void refreshDevices();
-    pollTimer = setInterval(() => void refreshDevices(), intervalMs);
   }
 
   function stopPolling() {
-    if (pollTimer !== null) {
-      clearInterval(pollTimer);
-      pollTimer = null;
-    }
     isPolling.value = false;
   }
 
   function selectDevice(device: ADBDevice) {
-    selectedDevice.value = device;
+    void sessionStore.setActiveDevice(device.serial);
   }
 
-  function setDevices(newDevices: ADBDevice[]) {
-    devices.value = newDevices;
-  }
+  function setDevices(_newDevices: ADBDevice[]) {}
 
   return {
     devices,

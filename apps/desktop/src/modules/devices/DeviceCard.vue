@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import type { ADBDevice } from "@/types/adb.types";
 import { Usb, Wifi, XCircle } from "lucide-vue-next";
 import { toast } from "vue-sonner";
@@ -30,6 +31,14 @@ const statusClass: Record<ADBDevice["status"], string> = {
   unauthorized: "text-warning",
   "no-permissions": "text-warning",
 };
+
+const currentStatusLabel = computed(() =>
+  props.device.isStale ? "Stale" : statusLabel[props.device.status],
+);
+
+const currentStatusClass = computed(() =>
+  props.device.isStale ? "text-muted-foreground/45" : statusClass[props.device.status],
+);
 
 async function handleDisconnect(event: Event) {
   event.stopPropagation();
@@ -70,8 +79,8 @@ async function handleDisconnect(event: Event) {
       >
         {{ props.device.model || props.device.serial }}
       </span>
-      <span class="text-[10px] font-semibold shrink-0" :class="statusClass[props.device.status]">
-        {{ statusLabel[props.device.status] }}
+      <span class="text-[10px] font-semibold shrink-0" :class="currentStatusClass">
+        {{ currentStatusLabel }}
       </span>
     </div>
 

@@ -57,7 +57,7 @@ const dotClass = computed(() => {
 
 const hasActiveSource = computed(() => sourceStore.activeSources.length > 0);
 const isFetching = computed(() => targetsStore.fetchingSources.size > 0);
-const hasTargets = computed(() => targetsStore.targets.length > 0);
+const hasTargets = computed(() => targetsStore.visibleTargets.length > 0);
 
 const sourceIcon = (source: string) => {
   return source === "adb" ? Smartphone : Globe;
@@ -117,7 +117,7 @@ const sourceIcon = (source: string) => {
       <DropdownMenuSeparator class="-mx-1" />
 
       <DropdownMenuItem
-        v-for="target in targetsStore.targets"
+        v-for="target in targetsStore.visibleTargets"
         :key="target.id"
         class="flex flex-col items-start gap-1 px-3 py-2 cursor-pointer rounded-md"
         :class="{

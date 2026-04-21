@@ -11,6 +11,9 @@ export interface ADBDevice {
   transportId: string;
   connectionType: "usb" | "wifi";
   status: "online" | "offline" | "unauthorized" | "no-permissions";
+  isStale?: boolean;
+  lastSeenAt?: number | null;
+  lastUpdatedAt?: number | null;
   androidVersion?: string;
   apiLevel?: number;
   battery?: number;
@@ -43,6 +46,11 @@ export interface AdbPackageDetails {
   dataSize?: number | null;
   cacheSize?: number | null;
   launchableActivity?: string | null;
+}
+
+export interface ReverseRule {
+  remotePort: number;
+  localPort: number;
 }
 
 export interface ADBPackage {

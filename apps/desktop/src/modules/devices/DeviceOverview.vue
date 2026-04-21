@@ -34,7 +34,7 @@ const {
   refetch,
 } = useQuery({
   queryKey: computed(() => ["device-info", serial.value]),
-  queryFn: () => getDeviceOverview(serial.value),
+  queryFn: ({ signal }) => getDeviceOverview(serial.value, { signal }),
   enabled: computed(() => !!serial.value),
   staleTime: 30_000,
 });

@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
-import { invoke } from "@tauri-apps/api/core";
 import { AlertCircle, Loader2 } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
@@ -30,7 +29,7 @@ interface QuickPathEntry {
 const devicesStore = useDevicesStore();
 const router = useRouter();
 const queryClient = useQueryClient();
-const { getPackageDetails, listPackages, openPackage, cancelListPackages } = useAdb();
+const { getPackageDetails, listPackages, openPackage, cancelListPackages, shellCommand } = useAdb();
 
 const serial = computed(() => devicesStore.selectedDevice?.serial ?? "");
 const appsView = ref<"grid" | "table">("grid");
@@ -334,10 +333,7 @@ async function executeAction() {
       command = `pm uninstall ${app.packageName}`;
     }
 
-    const result = await invoke<string>("adb_shell_command", {
-      serial: serial.value,
-      command,
-    });
+    const result = await shellCommand(serial.value, command);
 
     if (action === "uninstall") {
       if (result.toLowerCase().includes("success")) {

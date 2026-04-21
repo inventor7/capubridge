@@ -46,12 +46,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useAdb } from "@/composables/useAdb";
 import { useDevicesStore } from "@/stores/devices.store";
 import type { FileEntry } from "@/types/adb.types";
 
 const devicesStore = useDevicesStore();
 const route = useRoute();
 const qc = useQueryClient();
+const { shellCommand } = useAdb();
 const serial = computed(() => devicesStore.selectedDevice?.serial ?? "");
 
 const expandedDirs = ref<Set<string>>(new Set(["/"]));
@@ -179,10 +181,7 @@ async function searchSystemEntries(query: string): Promise<FileListEntry[]> {
     `else t=other; fi; ` +
     `printf '%s\\t%s\\n' "$t" "$p"; done`;
 
-  const output = await invoke<string>("adb_shell_command", {
-    serial: serial.value,
-    command,
-  });
+  const output = await shellCommand(serial.value, command);
   const seen = new Set<string>();
   const parsed: FileListEntry[] = [];
   for (const line of output.split(/\r?\n/)) {
