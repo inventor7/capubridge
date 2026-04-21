@@ -80,10 +80,9 @@ function onDeviceSelected(serial: string) {
       <template v-if="target?.source === 'adb' && target?.packageName">
         <AppIcon
           :serial="serial"
-          :packageName="target.packageName"
-          :apkPath="getCachedPackage(target.packageName)?.apkPath ?? ''"
-          :iconPath="getCachedPackage(target.packageName)?.iconPath"
-          :resolve="false"
+          :package-name="target.packageName"
+          :apk-path="getCachedPackage(target.packageName)?.apkPath ?? ''"
+          :icon-path="getCachedPackage(target.packageName)?.iconPath"
           size="sm"
           class="!w-4 !h-4 !rounded-sm"
         />

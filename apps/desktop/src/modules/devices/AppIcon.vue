@@ -3,14 +3,19 @@ import { computed } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { invoke } from "@tauri-apps/api/core";
 
-const props = defineProps<{
-  serial: string;
-  apkPath: string;
-  packageName: string;
-  iconPath?: string | null;
-  resolve?: boolean;
-  size?: "sm" | "md" | "lg";
-}>();
+const props = withDefaults(
+  defineProps<{
+    serial: string;
+    apkPath: string;
+    packageName: string;
+    iconPath?: string | null;
+    resolve?: boolean;
+    size?: "sm" | "md" | "lg";
+  }>(),
+  {
+    resolve: true,
+  },
+);
 
 const { data: iconUrl, isFetching } = useQuery({
   queryKey: computed(() => [
