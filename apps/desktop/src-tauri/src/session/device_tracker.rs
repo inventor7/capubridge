@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use tauri::AppHandle;
 
-use crate::commands::adb::{catch_adb_panic, create_adb_server, map_adb_server_err};
+use crate::adb_runtime::create_adb_server;
+use crate::commands::adb::{catch_adb_panic, map_adb_server_err};
 use crate::session::events::emit_registry_snapshot;
 use crate::session::registry::SessionRegistry;
 use crate::session::types::SessionTrackerStatus;

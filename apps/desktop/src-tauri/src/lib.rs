@@ -1,3 +1,4 @@
+mod adb_runtime;
 mod commands;
 mod session;
 
@@ -83,6 +84,11 @@ pub fn run() {
                 {
                     log::warn!("[session-cache] Failed to restore cache: {error}");
                 }
+            }
+
+            match adb_runtime::ensure_adb_runtime(&app.handle()) {
+                Ok(status) => log::info!("[adb_runtime] startup status={status}"),
+                Err(error) => log::warn!("[adb_runtime] startup failed: {error}"),
             }
 
             start_device_tracker(app.handle().clone(), session_registry.registry());

@@ -120,7 +120,7 @@ export function useAdb() {
   }
 
   async function restartServer() {
-    await invoke("adb_restart_server");
+    await invoke<string>("adb_restart_server");
   }
 
   async function listPackages(

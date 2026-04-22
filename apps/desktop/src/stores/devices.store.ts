@@ -73,7 +73,7 @@ export const useDevicesStore = defineStore("devices", () => {
     }
 
     statusOverride.value = "starting";
-    serverStartPromise = (invoke("adb_start_server") as Promise<string>)
+    serverStartPromise = invoke<string>("adb_start_server")
       .then(() => {
         statusOverride.value = "running";
         return true;

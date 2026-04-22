@@ -17,12 +17,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 
-pub(crate) fn create_adb_server() -> ADBServer {
-    ADBServer::new_from_path(
-        SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5037),
-        Some("__capubridge_disable_adb_autostart__".to_string()),
-    )
-}
+use crate::adb_runtime;
 
 pub(crate) fn map_adb_server_err(err: impl std::fmt::Display) -> String {
     let msg = err.to_string();
@@ -31,9 +26,7 @@ pub(crate) fn map_adb_server_err(err: impl std::fmt::Display) -> String {
         || msg.contains("NotConnected")
         || msg.contains("failed to lookup address information")
     {
-        return format!(
-            "{msg}. ADB server is not running — check that adb is installed and in your PATH."
-        );
+        return format!("{msg}. {}", adb_runtime::adb_server_unavailable_message());
     }
     msg
 }
@@ -58,7 +51,8 @@ pub(crate) fn catch_adb_panic<T>(
     }
 }
 
-static ADB_SERVER: LazyLock<Mutex<ADBServer>> = LazyLock::new(|| Mutex::new(create_adb_server()));
+static ADB_SERVER: LazyLock<Mutex<ADBServer>> =
+    LazyLock::new(|| Mutex::new(adb_runtime::create_adb_server()));
 static AYA_FORWARD_PORTS: LazyLock<Mutex<HashMap<String, u16>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static PACKAGE_SCAN_CANCELLATIONS: LazyLock<Mutex<HashSet<String>>> =
@@ -1170,53 +1164,19 @@ pub(crate) fn adb_root_inner(serial: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn adb_restart_server() -> Result<(), String> {
-    catch_adb_panic("adb_restart_server", || {
-        let mut server = ADB_SERVER.lock();
-        server.kill().map_err(map_adb_server_err)?;
-        Ok(())
-    })
+pub async fn adb_restart_server(app: AppHandle) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || adb_runtime::restart_adb_runtime(&app))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// One-time controlled spawn to start the ADB daemon when it is not running.
 /// Relies on `suppress_error_dialogs()` in lib.rs to prevent RunDLL popups.
 #[tauri::command]
-pub async fn adb_start_server() -> Result<String, String> {
-    {
-        let mut server = ADB_SERVER.lock();
-        if server.devices_long().is_ok() {
-            return Ok("already_running".to_string());
-        }
-    }
-
-    let adb_path = which::which("adb")
-        .map_err(|_| "adb not found in PATH — install Android SDK Platform Tools".to_string())?;
-
-    let mut cmd = tokio::process::Command::new(&adb_path);
-    cmd.arg("start-server");
-    #[cfg(target_os = "windows")]
-    {
-        cmd.creation_flags(0x08000000);
-    }
-    let output = cmd
-        .output()
+pub async fn adb_start_server(app: AppHandle) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || adb_runtime::ensure_adb_runtime(&app))
         .await
-        .map_err(|e| format!("Failed to launch adb: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("adb start-server failed: {}", stderr.trim()));
-    }
-
-    for _ in 0..25 {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        let mut server = ADB_SERVER.lock();
-        if server.devices_long().is_ok() {
-            return Ok("started".to_string());
-        }
-    }
-
-    Err("ADB server did not respond after 5 seconds".to_string())
+        .map_err(|e| e.to_string())?
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

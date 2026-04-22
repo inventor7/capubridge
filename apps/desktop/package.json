@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "bundle:adb": "node ./scripts/sync-platform-tools.mjs",
     "dev": "vp dev",
     "build": "tsc && vp build",
     "preview": "vp preview",

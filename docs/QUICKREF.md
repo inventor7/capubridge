@@ -35,6 +35,12 @@ Rules:
 - `vp test` = tests
 - if custom script name collide with built-in, use `vp run <script>`
 
+ADB bundle helper:
+
+- `apps/desktop/package.json` has `bundle:adb`
+- script downloads Google platform-tools into `apps/desktop/src-tauri/resources/adb`
+- runtime prefer `CAPUBRIDGE_ADB_PATH`, then bundled adb, then PATH
+
 ## Runtime model
 
 Capubridge now use session runtime.

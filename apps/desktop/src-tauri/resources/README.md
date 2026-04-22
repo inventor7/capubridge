@@ -1,5 +1,7 @@
 Place the scrcpy server asset here for offline packaged builds.
 
+Bundled adb lives under `resources/adb/`.
+
 Expected filename pattern:
 
 - `scrcpy-server-v<version>`
