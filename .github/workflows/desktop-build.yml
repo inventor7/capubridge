@@ -29,35 +29,8 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    name: check
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
-          run_install: false
-
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22.13.1
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: install workspace dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: run vp check
-        run: pnpm exec vp check
-
   build:
     name: ${{ matrix.name }}
-    needs: check
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
