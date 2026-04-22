@@ -872,15 +872,51 @@ This order prioritizes runtime control first, then migrates expensive feature pa
 - [x] Phase 5 package snapshots migrated.
 - [x] Phase 6 live feature leases migrated.
 - [x] Phase 7 watcher cleanup completed.
-- [ ] Phase 8 docs and verification completed.
+- [x] Phase 8 docs and verification completed.
 
-Current phase 7 implementation status:
+Current phase 8 implementation status:
 
 - startup, device switch, and target restore flows now run from explicit intents instead of watcher-driven orchestration
 - package/icon cache persistence restored and modal target rows now prime package metadata without waiting for the apps tab
 - file manager storage parents now expose usable virtual entries for `/storage/self` and `/storage/emulated`
 - app-level verification passed for startup restore, device apps package/icon flows, target modal rendering, and file manager storage access
-- next execution target is phase 8 docs and hardening
+- `docs/QUICKREF.md` and `docs/SPEC.md` now describe real monorepo paths, `vp` workflow, session runtime ownership, lease rules, and validation boundaries
+- next execution target is incremental Rust command-file splitting and further hardening, not more watcher architecture work
+
+---
+
+## Phase 8 verification checklist
+
+- [x] device attach/remove updates UI from session snapshots instead of repeated frontend polling
+- [x] active device switching works through explicit intent path
+- [x] startup restore path reselects saved device cleanly
+- [x] target refresh remains manual and scoped
+- [x] package refresh remains manual and scoped
+- [x] package and icon cache survive reload
+- [x] logcat/perf/mirror/console leases tear down on route or ownership exit
+- [x] file manager can traverse `/storage/self` and `/storage/emulated`
+- [x] external DevTools path no longer attempts invalid synthetic fallback targets
+- [ ] automated runtime regression suite exists for session runtime
+
+Verification source:
+
+- in-app validation during phases 6 and 7
+- user-confirmed runtime checks for package/icon flows, modal target rendering, startup flow, and file manager storage access
+- doc verification and architecture drift cleanup completed in phase 8
+
+---
+
+## Migration journal
+
+- Phase 0 fixed shared session contracts across Rust and TypeScript.
+- Phase 1 moved device presence ownership into Rust session registry and tracker.
+- Phase 2 added per-device serialized workers and queue/coalescing behavior.
+- Phase 3 added cache-only persistence for registry, targets, and packages.
+- Phase 4 moved target discovery to explicit session snapshots and manual refresh.
+- Phase 5 moved package snapshots to cached session-backed reads with explicit refresh.
+- Phase 6 converted logcat, perf, mirror, and console into leases.
+- Phase 7 removed remaining watcher-driven transport orchestration from frontend startup/device paths.
+- Phase 8 aligned docs with real runtime model and closed validation tracker for this architecture migration.
 
 ---
 
