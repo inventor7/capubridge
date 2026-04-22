@@ -91,12 +91,20 @@ jobs:
         run: pnpm --filter desktop run bundle:adb
 
       - name: build tauri bundles
+        id: tauri
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
+          tauriScript: pnpm exec tauri
           args: ${{ matrix.args }}
           retryAttempts: 2
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: capubridge-[platform]-[arch]-[bundle]
+          includeUpdaterJson: false
+
+      - name: upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: capubridge-${{ matrix.name }}
+          path: ${{ steps.tauri.outputs.artifactPaths }}
+          if-no-files-found: error
