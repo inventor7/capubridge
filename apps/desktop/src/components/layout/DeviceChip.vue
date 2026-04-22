@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from "vue";
+import { ref, computed } from "vue";
 import { Smartphone, Usb, Wifi, ChevronDown } from "lucide-vue-next";
 import { toast } from "vue-sonner";
 import { useDevicesStore } from "@/stores/devices.store";
@@ -21,19 +21,9 @@ const statusDot = computed(() => {
   return "bg-status-warning";
 });
 
-watch(
-  () => devicesStore.devices,
-  (devices) => {
-    if (devicesStore.selectedDevice) return;
-    const first = devices.find((d) => d.status === "online");
-    if (first) devicesStore.selectDevice(first);
-  },
-  { immediate: true },
-);
-
 function onDeviceSelected(serial: string) {
   const d = devicesStore.devices.find((x) => x.serial === serial);
-  if (d) devicesStore.selectDevice(d);
+  if (d) void devicesStore.selectDevice(d);
 }
 
 async function handleWifiSwitch() {

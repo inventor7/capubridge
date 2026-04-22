@@ -6,6 +6,11 @@ import type { ConnectionSource } from "@/types/connection.types";
 import type { SessionTargetSnapshot } from "@/types/session.types";
 import { listTargetsEffect, refreshTargetsEffect, runSessionEffect } from "@/runtime/session";
 import { useSourceStore } from "@/stores/source.store";
+import { useConnectionStore } from "@/stores/connection.store";
+import {
+  restoreSelectedTargetUrl,
+  saveSelectedTargetUrl,
+} from "@/composables/useSessionPersistence";
 
 interface RawCDPTarget {
   id: string;
@@ -52,6 +57,7 @@ function mapSessionTargetToCDP(target: SessionTargetSnapshot): CDPTarget {
 
 export const useTargetsStore = defineStore("targets", () => {
   const sourceStore = useSourceStore();
+  const connectionStore = useConnectionStore();
   const targets = ref<CDPTarget[]>([]);
   const selectedTarget = ref<CDPTarget | null>(null);
   const fetchingSources = ref<Set<string>>(new Set());
@@ -91,6 +97,29 @@ export const useTargetsStore = defineStore("targets", () => {
     }
   }
 
+  function restorePersistedTargetSelection() {
+    if (externalTargetOwned()) {
+      return;
+    }
+    if (selectedTarget.value || connectionStore.activeConnection) {
+      return;
+    }
+
+    const savedUrl = restoreSelectedTargetUrl();
+    if (!savedUrl) {
+      return;
+    }
+
+    const match = visibleTargets.value.find((target) => target.url === savedUrl);
+    if (match) {
+      selectedTarget.value = match;
+    }
+  }
+
+  function externalTargetOwned() {
+    return connectionStore.externalDevtoolsTargetId !== null;
+  }
+
   async function hydrateAdbTargets(serial: string) {
     error.value = null;
     try {
@@ -103,6 +132,7 @@ export const useTargetsStore = defineStore("targets", () => {
         snapshots.map((target) => mapSessionTargetToCDP(target)),
       );
       reconcileSelectedTarget();
+      restorePersistedTargetSelection();
     } catch (err) {
       error.value = String(err);
     }
@@ -131,12 +161,14 @@ export const useTargetsStore = defineStore("targets", () => {
           snapshots.map((target) => mapSessionTargetToCDP(target)),
         );
         reconcileSelectedTarget();
+        restorePersistedTargetSelection();
         return;
       }
 
       const enriched = raw.map((target) => mapRawTargetToCDP(source, target));
       replaceTargetsForSource(source, enriched);
       reconcileSelectedTarget();
+      restorePersistedTargetSelection();
     } catch (err) {
       error.value = String(err);
     } finally {
@@ -146,6 +178,9 @@ export const useTargetsStore = defineStore("targets", () => {
 
   function selectTarget(target: CDPTarget | null) {
     selectedTarget.value = target;
+    if (target) {
+      saveSelectedTargetUrl(target.url);
+    }
   }
 
   async function createChromeTarget(url: string, port: number) {
@@ -160,7 +195,7 @@ export const useTargetsStore = defineStore("targets", () => {
     };
     const target = mapRawTargetToCDP(source, rawTarget);
     targets.value = targets.value.filter((existing) => existing.id !== target.id).concat(target);
-    selectedTarget.value = target;
+    selectTarget(target);
     return target;
   }
 

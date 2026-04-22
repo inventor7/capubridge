@@ -7,6 +7,12 @@ import type { AdbPackage } from "@/types/adb.types";
 export type PackageFetchScope = "third-party" | "all";
 
 export const PACKAGE_CACHE_STALE_MS = 60_000;
+const PACKAGE_STORAGE_PREFIX = "capubridge:device-apps:v1";
+
+interface StoredPackagesCache {
+  packages: AdbPackage[];
+  updatedAt: number;
+}
 
 export function useAppPackages(serial: { value: string } | string) {
   const queryClient = useQueryClient();
@@ -23,17 +29,81 @@ export function useAppPackages(serial: { value: string } | string) {
     return ["packages", serialValue, scope];
   }
 
+  function packageStorageKey(serialValue: string, scope: PackageFetchScope) {
+    return `${PACKAGE_STORAGE_PREFIX}:${serialValue}:${scope}`;
+  }
+
+  function readStoredPackages(
+    serialValue: string,
+    scope: PackageFetchScope,
+  ): StoredPackagesCache | null {
+    if (typeof window === "undefined" || !serialValue) {
+      return null;
+    }
+
+    const raw = window.localStorage.getItem(packageStorageKey(serialValue, scope));
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as
+        | StoredPackagesCache
+        | AdbPackage[]
+        | { packages?: AdbPackage[]; updatedAt?: number };
+      if (Array.isArray(parsed)) {
+        return {
+          packages: parsed,
+          updatedAt: 0,
+        };
+      }
+      if (!Array.isArray(parsed.packages)) {
+        return null;
+      }
+      return {
+        packages: parsed.packages,
+        updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function writeStoredPackages(
+    serialValue: string,
+    scope: PackageFetchScope,
+    packages: AdbPackage[],
+    updatedAt: number,
+  ) {
+    if (typeof window === "undefined" || !serialValue) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        packageStorageKey(serialValue, scope),
+        JSON.stringify({
+          packages,
+          updatedAt,
+        }),
+      );
+    } catch {
+      return;
+    }
+  }
+
   function writePackagesCache(
     serialValue: string,
     scope: PackageFetchScope,
     packages: AdbPackage[],
   ) {
+    const updatedAt = Date.now();
     queryClient.setQueryData(packageQueryKeyFor(serialValue, scope), packages);
+    writeStoredPackages(serialValue, scope, packages, updatedAt);
     if (scope === "all") {
-      queryClient.setQueryData(
-        packageQueryKeyFor(serialValue, "third-party"),
-        packages.filter((entry) => !entry.system),
-      );
+      const thirdPartyPackages = packages.filter((entry) => !entry.system);
+      queryClient.setQueryData(packageQueryKeyFor(serialValue, "third-party"), thirdPartyPackages);
+      writeStoredPackages(serialValue, "third-party", thirdPartyPackages, updatedAt);
     }
   }
 
@@ -46,6 +116,7 @@ export function useAppPackages(serial: { value: string } | string) {
       return [];
     }
 
+    const cachedPackages = readPackagesCache(currentSerial, scope);
     const packages = await runSessionEffect(listPackagesEffect(currentSerial, scope), {
       operation: "session.listPackages",
       signal: options?.signal,
@@ -56,11 +127,8 @@ export function useAppPackages(serial: { value: string } | string) {
       return packages;
     }
 
-    const cachedPackages = queryClient.getQueryData<AdbPackage[]>(
-      packageQueryKeyFor(currentSerial, scope),
-    );
     if (cachedPackages) {
-      return cachedPackages;
+      return cachedPackages.packages;
     }
 
     return refreshPackageScope(scope, options);
@@ -90,6 +158,20 @@ export function useAppPackages(serial: { value: string } | string) {
     return useQuery({
       queryKey: computed(() => packageQueryKey(resolvedScope.value)),
       queryFn: ({ signal }) => loadPackages(resolvedScope.value, { signal }),
+      initialData: () => {
+        const currentSerial = activeSerial.value;
+        if (!currentSerial) {
+          return undefined;
+        }
+        return readPackagesCache(currentSerial, resolvedScope.value)?.packages;
+      },
+      initialDataUpdatedAt: () => {
+        const currentSerial = activeSerial.value;
+        if (!currentSerial) {
+          return undefined;
+        }
+        return readPackagesCache(currentSerial, resolvedScope.value)?.updatedAt;
+      },
       enabled: computed(() => !!activeSerial.value),
       staleTime: PACKAGE_CACHE_STALE_MS,
       gcTime: 24 * 60 * 60 * 1000,
@@ -101,11 +183,33 @@ export function useAppPackages(serial: { value: string } | string) {
   }
 
   function readPackagesCache(
-    serial: string,
+    serialValue: string,
     scope: PackageFetchScope,
-  ): { packages: AdbPackage[] } | null {
-    const packages = queryClient.getQueryData<AdbPackage[]>(packageQueryKeyFor(serial, scope));
-    return packages ? { packages } : null;
+  ): StoredPackagesCache | null {
+    const cachedPackages = queryClient.getQueryData<AdbPackage[]>(
+      packageQueryKeyFor(serialValue, scope),
+    );
+    if (cachedPackages) {
+      return {
+        packages: cachedPackages,
+        updatedAt: 0,
+      };
+    }
+
+    const storedPackages = readStoredPackages(serialValue, scope);
+    if (!storedPackages) {
+      return null;
+    }
+
+    queryClient.setQueryData(packageQueryKeyFor(serialValue, scope), storedPackages.packages);
+    if (scope === "all") {
+      queryClient.setQueryData(
+        packageQueryKeyFor(serialValue, "third-party"),
+        storedPackages.packages.filter((entry) => !entry.system),
+      );
+    }
+
+    return storedPackages;
   }
 
   function getCachedPackage(packageName: string): AdbPackage | null {
@@ -116,9 +220,7 @@ export function useAppPackages(serial: { value: string } | string) {
 
     const scopes: PackageFetchScope[] = ["third-party", "all"];
     for (const scope of scopes) {
-      const packages = queryClient.getQueryData<AdbPackage[]>(
-        packageQueryKeyFor(currentSerial, scope),
-      );
+      const packages = readPackagesCache(currentSerial, scope)?.packages;
       const packageEntry = packages?.find((entry) => entry.packageName === packageName);
       if (packageEntry) {
         return packageEntry;
@@ -128,10 +230,25 @@ export function useAppPackages(serial: { value: string } | string) {
     return null;
   }
 
+  async function ensurePackages(scope: PackageFetchScope = "all") {
+    const currentSerial = activeSerial.value;
+    if (!currentSerial) {
+      return [];
+    }
+
+    const cachedPackages = readPackagesCache(currentSerial, scope);
+    if (cachedPackages) {
+      return cachedPackages.packages;
+    }
+
+    return loadPackages(scope);
+  }
+
   return {
     PACKAGE_CACHE_STALE_MS,
     usePackages,
     refreshPackages,
+    ensurePackages,
     getCachedPackage,
     readPackagesCache,
   };

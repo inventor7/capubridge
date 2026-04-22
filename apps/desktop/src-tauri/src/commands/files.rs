@@ -276,6 +276,27 @@ fn virtual_data_local_entries() -> Vec<FileEntry> {
     vec![virtual_entry("tmp".to_string(), "dir")]
 }
 
+fn virtual_storage_self_entries() -> Vec<FileEntry> {
+    vec![virtual_entry("primary".to_string(), "dir")]
+}
+
+fn virtual_storage_emulated_entries(
+    device: &mut adb_client::server_device::ADBServerDevice,
+) -> Vec<FileEntry> {
+    let current_user = get_current_user(device).to_string();
+    let mut names = vec!["0".to_string()];
+    if current_user != "0" {
+        names.push(current_user);
+    }
+    names.sort();
+    names.dedup();
+
+    names
+        .into_iter()
+        .map(|name| virtual_entry(name, "dir"))
+        .collect()
+}
+
 fn virtual_data_data_entries(
     device: &mut adb_client::server_device::ADBServerDevice,
 ) -> Vec<FileEntry> {
@@ -416,6 +437,12 @@ pub fn adb_list_dir(serial: String, path: String) -> Result<Vec<FileEntry>, Stri
     }
     if normalized_path == "/data/local" {
         return Ok(virtual_data_local_entries());
+    }
+    if normalized_path == "/storage/self" {
+        return Ok(virtual_storage_self_entries());
+    }
+    if normalized_path == "/storage/emulated" {
+        return Ok(virtual_storage_emulated_entries(&mut device));
     }
     if normalized_path == "/data/data" {
         return Ok(virtual_data_data_entries(&mut device));

@@ -46,7 +46,7 @@ const targetLabel = computed(() => {
 
 function onDeviceSelected(serial: string) {
   const d = devicesStore.devices.find((x) => x.serial === serial);
-  if (d) devicesStore.selectDevice(d);
+  if (d) void devicesStore.selectDevice(d);
 }
 </script>
 

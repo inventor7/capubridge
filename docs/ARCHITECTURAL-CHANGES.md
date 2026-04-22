@@ -871,16 +871,16 @@ This order prioritizes runtime control first, then migrates expensive feature pa
 - [x] Phase 4 target discovery migrated.
 - [x] Phase 5 package snapshots migrated.
 - [x] Phase 6 live feature leases migrated.
-- [ ] Phase 7 watcher cleanup completed.
+- [x] Phase 7 watcher cleanup completed.
 - [ ] Phase 8 docs and verification completed.
 
-Current phase 6 implementation status:
+Current phase 7 implementation status:
 
-- session lease commands added for logcat, perf, mirror, and console target attachment
-- logcat and perf frontend feeds moved onto typed session events
-- console and mirror flows now use explicit lease attach/start and teardown paths
-- app-level verification passed for logcat, perf, mirror, console, and device apps package/icon flows
-- next execution target is phase 7 watcher cleanup
+- startup, device switch, and target restore flows now run from explicit intents instead of watcher-driven orchestration
+- package/icon cache persistence restored and modal target rows now prime package metadata without waiting for the apps tab
+- file manager storage parents now expose usable virtual entries for `/storage/self` and `/storage/emulated`
+- app-level verification passed for startup restore, device apps package/icon flows, target modal rendering, and file manager storage access
+- next execution target is phase 8 docs and hardening
 
 ---
 

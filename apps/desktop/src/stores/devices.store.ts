@@ -3,11 +3,16 @@ import { defineStore } from "pinia";
 import { invoke } from "@tauri-apps/api/core";
 import type { ADBDevice } from "@/types/adb.types";
 import { useSessionStore } from "@/stores/session.store";
+import { useTargetsStore } from "@/stores/targets.store";
+import { useConnectionStore } from "@/stores/connection.store";
+import { saveSelectedDeviceSerial } from "@/composables/useSessionPersistence";
 
 export type AdbServerStatus = "unknown" | "running" | "starting" | "error";
 
 export const useDevicesStore = defineStore("devices", () => {
   const sessionStore = useSessionStore();
+  const targetsStore = useTargetsStore();
+  const connectionStore = useConnectionStore();
   const isPolling = ref(false);
   const error = ref<string | null>(null);
   const statusOverride = ref<AdbServerStatus | null>(null);
@@ -124,8 +129,22 @@ export const useDevicesStore = defineStore("devices", () => {
     isPolling.value = false;
   }
 
-  function selectDevice(device: ADBDevice) {
-    void sessionStore.setActiveDevice(device.serial);
+  async function selectDevice(device: ADBDevice) {
+    const activeAdbTarget =
+      targetsStore.selectedTarget?.source === "adb" ? targetsStore.selectedTarget : null;
+
+    if (activeAdbTarget && activeAdbTarget.deviceSerial !== device.serial) {
+      await connectionStore.disconnectTarget(activeAdbTarget.id);
+      if (targetsStore.selectedTarget?.source === "adb") {
+        targetsStore.selectTarget(null);
+      }
+    }
+
+    await sessionStore.setActiveDevice(device.serial);
+    saveSelectedDeviceSerial(device.serial);
+    if (device.status === "online") {
+      await targetsStore.hydrateAdbTargets(device.serial);
+    }
   }
 
   function setDevices(_newDevices: ADBDevice[]) {}

@@ -40,7 +40,7 @@ const devicesStore = useDevicesStore();
           :key="device.serial"
           :device="device"
           :is-selected="devicesStore.selectedDevice?.serial === device.serial"
-          @select="devicesStore.selectDevice(device)"
+          @select="void devicesStore.selectDevice(device)"
         />
       </div>
     </div>

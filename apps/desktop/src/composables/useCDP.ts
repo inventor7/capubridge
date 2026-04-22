@@ -1,4 +1,4 @@
-import { computed, watch } from "vue";
+import { computed } from "vue";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useTargetsStore } from "@/stores/targets.store";
 import { useConnectionStore } from "@/stores/connection.store";
@@ -53,79 +53,4 @@ export function useCDP() {
     getClient,
     disconnectTarget,
   };
-}
-
-export function initCDPWatchers() {
-  const devicesStore = useDevicesStore();
-  const targetsStore = useTargetsStore();
-  const connectionStore = useConnectionStore();
-  const sourceStore = useSourceStore();
-  let selectionRun = 0;
-
-  watch(
-    () =>
-      [
-        devicesStore.selectedDevice?.serial ?? null,
-        devicesStore.selectedDevice?.status ?? null,
-      ] as const,
-    async ([deviceSerial, deviceStatus], [previousSerial, previousStatus]) => {
-      if (deviceSerial === previousSerial && deviceStatus === previousStatus) {
-        return;
-      }
-
-      const device = devicesStore.selectedDevice;
-      console.log("[cdp] device watcher", {
-        current: deviceSerial,
-        previous: previousSerial,
-      });
-      const runId = ++selectionRun;
-      const oldSerial = sourceStore.getAdbSource()?.serial ?? null;
-      const selectedTargetId = targetsStore.selectedTarget?.id ?? null;
-
-      if (device?.status === "online") {
-        if (oldSerial && oldSerial !== device.serial) {
-          if (selectedTargetId && targetsStore.selectedTarget?.source === "adb") {
-            await connectionStore.disconnectTarget(selectedTargetId);
-          }
-          if (runId !== selectionRun) return;
-          if (targetsStore.selectedTarget?.source === "adb") {
-            targetsStore.selectTarget(null);
-          }
-          await sourceStore.addAdbSource(device.serial);
-          if (runId !== selectionRun) return;
-          await targetsStore.hydrateAdbTargets(device.serial);
-          if (runId !== selectionRun) return;
-        } else {
-          await sourceStore.addAdbSource(device.serial);
-          if (runId !== selectionRun) return;
-          await targetsStore.hydrateAdbTargets(device.serial);
-          if (runId !== selectionRun) return;
-        }
-      } else if (previousSerial && !deviceSerial) {
-        const currentSerial = sourceStore.getAdbSource()?.serial ?? null;
-        if (selectedTargetId && targetsStore.selectedTarget?.source === "adb") {
-          await connectionStore.disconnectTarget(selectedTargetId);
-        }
-        if (runId !== selectionRun) return;
-        if (targetsStore.selectedTarget?.source === "adb") {
-          targetsStore.selectTarget(null);
-        }
-        if (currentSerial) targetsStore.clearTargetsForSerial(currentSerial);
-        await sourceStore.removeAdbSource();
-      }
-    },
-  );
-
-  watch(
-    () => sourceStore.getChromeSource(),
-    async (chromeSource) => {
-      if (chromeSource) {
-        console.log("[cdp] chrome source watcher", {
-          port: chromeSource.port,
-          mode: chromeSource.mode,
-        });
-        await targetsStore.fetchTargetsForSource(chromeSource);
-      }
-    },
-  );
 }

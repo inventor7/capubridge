@@ -1,51 +1,49 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
 import { invoke } from "@tauri-apps/api/core";
-import type { ConnectionSource, ChromeLaunchResult } from "@/types/connection.types";
+import type { ChromeLaunchResult, ChromeSource, ConnectionSource } from "@/types/connection.types";
 import { CHROME_CDP_PORT } from "@/config/ports";
+import { useSessionStore } from "@/stores/session.store";
 
 export const useSourceStore = defineStore("source", () => {
-  const activeSources = ref<ConnectionSource[]>([]);
+  const sessionStore = useSessionStore();
+  const chromeSource = ref<ChromeSource | null>(null);
   const chromeStatus = ref<"idle" | "checking" | "launching" | "running" | "error">("idle");
   const chromeError = ref<string | null>(null);
   const chromeNeedsRelaunch = ref(false);
 
-  const hasAdbSource = computed(() => activeSources.value.some((s) => s.type === "adb"));
-  const hasChromeSource = computed(() => activeSources.value.some((s) => s.type === "chrome"));
+  const adbSource = computed(() => {
+    const device = sessionStore.selectedDevice;
+    if (!device || device.status !== "online") {
+      return null;
+    }
+
+    return {
+      type: "adb" as const,
+      serial: device.serial,
+    };
+  });
+
+  const activeSources = computed(() => {
+    const sources: ConnectionSource[] = [];
+    if (adbSource.value) {
+      sources.push(adbSource.value);
+    }
+    if (chromeSource.value) {
+      sources.push(chromeSource.value);
+    }
+    return sources;
+  });
+
+  const hasAdbSource = computed(() => adbSource.value !== null);
+  const hasChromeSource = computed(() => chromeSource.value !== null);
 
   function getAdbSource() {
-    return activeSources.value.find((s) => s.type === "adb") ?? null;
+    return adbSource.value;
   }
 
   function getChromeSource() {
-    return activeSources.value.find((s) => s.type === "chrome") ?? null;
-  }
-
-  async function addAdbSource(serial: string) {
-    const existing = getAdbSource();
-    if (existing && existing.serial === serial) return;
-
-    if (existing) {
-      await removeAdbSource();
-    }
-
-    activeSources.value.push({
-      type: "adb",
-      serial,
-    });
-  }
-
-  async function removeAdbSource() {
-    const source = getAdbSource();
-    if (!source) return;
-
-    try {
-      await invoke("adb_remove_forward", { serial: source.serial });
-    } catch {
-      // ignore cleanup errors
-    }
-
-    activeSources.value = activeSources.value.filter((s) => s.type !== "adb");
+    return chromeSource.value;
   }
 
   async function autoConnectChrome() {
@@ -58,11 +56,11 @@ export const useSourceStore = defineStore("source", () => {
         port: CHROME_CDP_PORT,
       });
       if (res) {
-        activeSources.value.push({
+        chromeSource.value = {
           type: "chrome",
           port: CHROME_CDP_PORT,
           mode: "auto",
-        });
+        };
         chromeStatus.value = "running";
         return "connected";
       }
@@ -110,12 +108,12 @@ export const useSourceStore = defineStore("source", () => {
         port: CHROME_CDP_PORT,
       });
 
-      activeSources.value.push({
+      chromeSource.value = {
         type: "chrome",
         port: CHROME_CDP_PORT,
         mode: "auto",
         pid: result.pid,
-      });
+      };
 
       chromeStatus.value = "running";
       chromeNeedsRelaunch.value = false;
@@ -134,16 +132,11 @@ export const useSourceStore = defineStore("source", () => {
     try {
       await invoke("chrome_verify_port", { port });
 
-      const existing = getChromeSource();
-      if (existing) {
-        activeSources.value = activeSources.value.filter((s) => s.type !== "chrome");
-      }
-
-      activeSources.value.push({
+      chromeSource.value = {
         type: "chrome",
         port,
         mode: "manual",
-      });
+      };
 
       chromeStatus.value = "running";
       return true;
@@ -158,7 +151,7 @@ export const useSourceStore = defineStore("source", () => {
     const source = getChromeSource();
     if (!source) return;
 
-    activeSources.value = activeSources.value.filter((s) => s.type !== "chrome");
+    chromeSource.value = null;
     chromeStatus.value = "idle";
     chromeError.value = null;
     chromeNeedsRelaunch.value = false;
@@ -180,8 +173,6 @@ export const useSourceStore = defineStore("source", () => {
     hasChromeSource,
     getAdbSource,
     getChromeSource,
-    addAdbSource,
-    removeAdbSource,
     autoConnectChrome,
     launchChrome,
     connectChrome,

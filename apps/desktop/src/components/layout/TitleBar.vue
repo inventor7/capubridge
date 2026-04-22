@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import {
   Minus,
   Maximize2,
@@ -14,27 +14,20 @@ import {
 } from "lucide-vue-next";
 import { useRouter } from "vue-router";
 import { useDevicesStore } from "@/stores/devices.store";
-import { useSourceStore } from "@/stores/source.store";
 import { useMirrorStore } from "@/stores/mirror.store";
 import { useTargetsStore } from "@/stores/targets.store";
 import { useDockStore } from "@/stores/dock.store";
 import { useUIStore } from "@/stores/ui.store";
-import { initCDPWatchers } from "@/composables/useCDP";
-import { useSessionPersistence } from "@/composables/useSessionPersistence";
 import ConnectionSummary from "./ConnectionSummary.vue";
 
 const emit = defineEmits<{ openCommandPalette: [] }>();
 
 const router = useRouter();
 const devicesStore = useDevicesStore();
-const sourceStore = useSourceStore();
 const mirrorStore = useMirrorStore();
 const targetsStore = useTargetsStore();
 const dockStore = useDockStore();
 const uiStore = useUIStore();
-
-initCDPWatchers();
-useSessionPersistence();
 
 const isMaximized = ref(false);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,28 +37,7 @@ const mirrorEnabled = computed(
   () => devicesStore.selectedDevice?.status === "online" || targetsStore.selectedTarget !== null,
 );
 
-watch(
-  () => devicesStore.devices,
-  (devices) => {
-    if (devicesStore.selectedDevice) return;
-    const first = devices.find((d) => d.status === "online");
-    if (first) devicesStore.selectDevice(first);
-  },
-  { immediate: true },
-);
-
 onMounted(async () => {
-  void devicesStore.refreshDevices();
-
-  const savedPort = localStorage.getItem("capubridge:chrome-port");
-  if (!sourceStore.hasChromeSource) {
-    const result = await sourceStore.autoConnectChrome().catch(() => null);
-    if (result !== "connected" && savedPort) {
-      const port = parseInt(savedPort, 10);
-      if (!isNaN(port)) await sourceStore.connectChrome(port).catch(() => null);
-    }
-  }
-
   try {
     const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     appWindow = getCurrentWebviewWindow();
@@ -76,10 +48,6 @@ onMounted(async () => {
   } catch {
     appWindow = null;
   }
-});
-
-onUnmounted(() => {
-  devicesStore.stopPolling();
 });
 
 async function minimize() {

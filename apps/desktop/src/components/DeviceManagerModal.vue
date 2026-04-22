@@ -42,11 +42,13 @@ const { getDeviceOverview, tcpip, connectDevice, disconnectDevice, pairDevice } 
 type Panel = "device" | "local" | "connect";
 const activePanel = ref<Panel>("device");
 const selectedSerial = ref<string | null>(null);
-const { getCachedPackage } = useAppPackages(selectedSerial);
+const { getCachedPackage, ensurePackages, refreshPackages, readPackagesCache } =
+  useAppPackages(selectedSerial);
 const deviceInfoCache = reactive<Record<string, Awaited<ReturnType<typeof getDeviceOverview>>>>({});
 const deviceInfoLoading = ref(false);
 const isRefreshingDevices = ref(false);
 const scanningTargets = ref(false);
+const primingPackages = ref(false);
 const wifiIp = ref("");
 const wifiPort = ref("5555");
 const pairAddr = ref("");
@@ -175,6 +177,26 @@ async function resolveRemoteDevtoolsWsUrl(target: CDPTarget) {
 
 async function handleOpenRemoteDevtools(target: CDPTarget, event: Event) {
   event.stopPropagation();
+  try {
+    const targetUrl = new URL(target.webSocketDebuggerUrl);
+    if (
+      target.source === "adb" &&
+      !target.devtoolsFrontendUrl &&
+      targetUrl.pathname === "/" &&
+      !targetUrl.search
+    ) {
+      toast.error("Target metadata is incomplete", {
+        description: "Refresh targets before opening remote DevTools.",
+      });
+      return;
+    }
+  } catch {
+    toast.error("Target metadata is invalid", {
+      description: "Refresh targets before opening remote DevTools.",
+    });
+    return;
+  }
+
   const chromeSource = sourceStore.getChromeSource();
   if (!chromeSource) {
     toast.error("Connect Local Chrome first", {
@@ -232,6 +254,39 @@ async function loadDeviceInfo(serial: string) {
     // info unavailable
   } finally {
     deviceInfoLoading.value = false;
+  }
+}
+
+async function primeTargetPackages() {
+  const serial = selectedSerial.value;
+  if (!serial || primingPackages.value) {
+    return;
+  }
+
+  const packageNames = groupedAndroidTargets.value
+    .map((group) => group.packageName)
+    .filter((packageName) => packageName !== "Unknown package");
+  if (!packageNames.length) {
+    return;
+  }
+
+  const allPackagesCache = readPackagesCache(serial, "all");
+  const hasAllPackages = packageNames.every((packageName) => getCachedPackage(packageName));
+  if (allPackagesCache && hasAllPackages) {
+    return;
+  }
+
+  primingPackages.value = true;
+  try {
+    if (allPackagesCache && !hasAllPackages) {
+      await refreshPackages("all");
+      return;
+    }
+    await ensurePackages("all");
+  } catch {
+    return;
+  } finally {
+    primingPackages.value = false;
   }
 }
 
@@ -322,7 +377,7 @@ async function selectSidebarDevice(serial: string) {
   if (wasPolling) devicesStore.stopPolling();
   selectedSerial.value = serial;
   activePanel.value = "device";
-  devicesStore.selectDevice(d);
+  await devicesStore.selectDevice(d);
   emit("selectDevice", serial);
   await loadDeviceInfo(serial);
   if (wasPolling && props.open) devicesStore.startPolling(3000);
@@ -570,6 +625,21 @@ watch(
       }
     }
     expandedTargetPackages.value = next;
+  },
+  { immediate: true },
+);
+
+watch(
+  () => [
+    props.open,
+    selectedSerial.value,
+    groupedAndroidTargets.value.map((group) => group.packageName).join("|"),
+  ],
+  ([open, serial]) => {
+    if (!open || !serial) {
+      return;
+    }
+    void primeTargetPackages();
   },
   { immediate: true },
 );
