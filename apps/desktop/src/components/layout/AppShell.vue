@@ -224,7 +224,12 @@ onUnmounted(() => {
   <div class="flex flex-col h-screen overflow-hidden bg-background dark">
     <TitleBar @open-command-palette="commandPaletteOpen = true" />
 
-    <div class="flex flex-1 overflow-hidden">
+    <div
+      class="flex flex-1 overflow-hidden"
+      :class="{
+        'flex-row-reverse': showMirrorLeft,
+      }"
+    >
       <Sidebar />
 
       <div class="relative flex flex-1 flex-col overflow-hidden min-w-0 bg-surface-0">
@@ -244,37 +249,29 @@ onUnmounted(() => {
             @request-main-focus="focusMainContent"
           />
         </Transition>
-
-        <Transition
-          enter-active-class="transition-all duration-200 ease-out"
-          leave-active-class="transition-all duration-150 ease-in"
-          enter-from-class="opacity-0 -translate-x-full"
-          leave-to-class="opacity-0 -translate-x-full"
-        >
-          <div
-            v-if="showMirrorLeft"
-            class="absolute inset-y-0 left-0 z-20"
-            :style="{ bottom: mirrorBottomInset }"
-          >
-            <MirrorPanel />
-          </div>
-        </Transition>
-
-        <Transition
-          enter-active-class="transition-all duration-200 ease-out"
-          leave-active-class="transition-all duration-150 ease-in"
-          enter-from-class="opacity-0 translate-x-full"
-          leave-to-class="opacity-0 translate-x-full"
-        >
-          <div
-            v-if="showMirrorRight"
-            class="absolute inset-y-0 right-0 z-20"
-            :style="{ bottom: mirrorBottomInset }"
-          >
-            <MirrorPanel />
-          </div>
-        </Transition>
       </div>
+
+      <Transition
+        enter-active-class="transition-all duration-200 ease-out"
+        leave-active-class="transition-all duration-150 ease-in"
+        enter-from-class="opacity-0 -translate-x-full"
+        leave-to-class="opacity-0 -translate-x-full"
+      >
+        <div v-if="showMirrorLeft" class="left-0" :style="{ bottom: mirrorBottomInset }">
+          <MirrorPanel />
+        </div>
+      </Transition>
+
+      <Transition
+        enter-active-class="transition-all duration-200 ease-out"
+        leave-active-class="transition-all duration-150 ease-in"
+        enter-from-class="opacity-0 translate-x-full"
+        leave-to-class="opacity-0 translate-x-full"
+      >
+        <div v-if="showMirrorRight" class="right-0" :style="{ bottom: mirrorBottomInset }">
+          <MirrorPanel />
+        </div>
+      </Transition>
     </div>
   </div>
 

@@ -5,6 +5,7 @@ import { useMirrorStore } from "@/stores/mirror.store";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useInspectStore } from "@/stores/inspect.store";
 import { useTargetsStore } from "@/stores/targets.store";
+import { useMirrorViewportWidth } from "./useMirrorViewportWidth";
 import { useMirrorStream } from "./useMirrorStream";
 import MirrorStream from "./MirrorStream.vue";
 import MirrorControls from "./MirrorControls.vue";
@@ -32,9 +33,9 @@ const {
 } = useMirrorStream();
 
 const settingsOpen = ref(false);
-
-// Resize state
 const isResizing = ref(false);
+const streamAreaRef = ref<HTMLElement | null>(null);
+const { panelWidth } = useMirrorViewportWidth(streamAreaRef);
 
 function startResize(e: MouseEvent) {
   isResizing.value = true;
@@ -61,7 +62,6 @@ function startResize(e: MouseEvent) {
   window.addEventListener("mouseup", onUp);
 }
 
-// Auto-start/stop stream when panel opens/closes
 watch(
   () => mirrorStore.isOpen,
   (open) => {
@@ -71,10 +71,10 @@ watch(
       void stopStream();
     }
   },
+
   { immediate: true },
 );
 
-// Restart if device changes
 watch(
   () => devicesStore.selectedDevice?.serial,
   () => {
@@ -191,9 +191,7 @@ function toggleRecord() {
 </script>
 
 <template>
-  <!-- Panel wrapper with resize handle -->
-  <div class="flex shrink-0 h-full" :style="{ width: `${mirrorStore.width + 4}px` }">
-    <!-- Resize handle on left edge when panel is on the right -->
+  <div class="flex shrink-0 h-full" :style="{ width: `${panelWidth + 4}px` }">
     <div
       v-if="mirrorStore.side === 'right'"
       class="w-1 cursor-col-resize group shrink-0 flex items-center justify-center hover:bg-border/60 transition-colors"
@@ -203,12 +201,10 @@ function toggleRecord() {
       <div class="w-px h-8 bg-border/40 group-hover:bg-border transition-colors" />
     </div>
 
-    <!-- Main panel content -->
     <div
       class="flex-1 flex flex-col overflow-hidden border-border/20 bg-background"
       :class="mirrorStore.side === 'right' ? 'border-l' : 'border-r'"
     >
-      <!-- Top action bar -->
       <MirrorTopBar
         :is-recording="mirrorStore.isRecording"
         :laser-mode="mirrorStore.laserMode"
@@ -229,7 +225,6 @@ function toggleRecord() {
         @update:settings-open="settingsOpen = $event"
       />
 
-      <!-- Settings panel (inline, collapses) -->
       <Transition
         enter-active-class="transition-all duration-200 ease-out"
         leave-active-class="transition-all duration-150 ease-in"
@@ -241,8 +236,10 @@ function toggleRecord() {
         </div>
       </Transition>
 
-      <!-- Stream area — flex-1, scrollable if taller than panel -->
-      <div class="flex-1 overflow-hidden flex items-center justify-center p-2 bg-zinc-950">
+      <div
+        ref="streamAreaRef"
+        class="flex-1 overflow-hidden flex items-center justify-center p-2 bg-zinc-950"
+      >
         <div
           class="w-full overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/5"
           :style="{
@@ -266,10 +263,8 @@ function toggleRecord() {
         </div>
       </div>
 
-      <!-- Device control buttons -->
       <MirrorControls v-if="isAndroidStream" @keyevent="sendKey" />
 
-      <!-- Recording indicator strip -->
       <Transition
         enter-active-class="transition-all duration-300"
         leave-active-class="transition-all duration-200"
@@ -286,7 +281,6 @@ function toggleRecord() {
       </Transition>
     </div>
 
-    <!-- Resize handle on right edge when panel is on the left -->
     <div
       v-if="mirrorStore.side === 'left'"
       class="w-1 cursor-col-resize group shrink-0 flex items-center justify-center hover:bg-border/60 transition-colors"

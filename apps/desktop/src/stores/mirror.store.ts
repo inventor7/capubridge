@@ -48,15 +48,14 @@ export const useMirrorStore = defineStore("mirror", () => {
     side.value = s;
   }
   function setWidth(w: number) {
-    width.value = Math.max(200, Math.min(480, w));
+    width.value = Math.max(220, Math.min(560, w));
   }
   function setDeviceSize(w: number, h: number) {
     deviceWidth.value = w;
     deviceHeight.value = h;
-    // Compute ideal width to fit a 9/19 phone frame, capped sensibly
     if (h > 0) {
-      const idealWidth = Math.round((w / h) * 520);
-      width.value = Math.max(220, Math.min(400, idealWidth));
+      const idealWidth = Math.round((w / h) * 760);
+      width.value = Math.max(240, Math.min(520, idealWidth));
     }
   }
 
