@@ -23,6 +23,10 @@ use commands::mirror::{
     adb_mirror_stop_recording, adb_mirror_stop_scrcpy, adb_mirror_swipe, adb_mirror_tap,
     adb_mirror_touch_event,
 };
+use commands::mock_server::{
+    mock_server_start, mock_server_status, mock_server_stop, mock_server_sync_rules,
+    MockServerManager,
+};
 use commands::perf::{adb_perf_start, adb_perf_stop};
 use commands::port_forward::{adb_fetch_json_targets, adb_forward_cdp, adb_remove_forward};
 use commands::sqlite::{
@@ -69,6 +73,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(session_registry.clone())
+        .manage(MockServerManager::new())
         .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
             if cfg!(debug_assertions) {
@@ -195,6 +200,10 @@ pub fn run() {
             sqlite_table_foreign_keys,
             sqlite_table_rows,
             sqlite_execute_query,
+            mock_server_start,
+            mock_server_stop,
+            mock_server_sync_rules,
+            mock_server_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

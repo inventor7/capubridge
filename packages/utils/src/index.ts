@@ -28,6 +28,14 @@ export type {
 export { OverlayDomain } from "./cdp/domains/overlay.js";
 export type { HighlightConfig, RGBA } from "./cdp/domains/overlay.js";
 export { NetworkDomain } from "./cdp/domains/network.js";
+export { FetchDomain } from "./cdp/domains/fetch.js";
+export type {
+  FetchRequestPattern,
+  FetchHeaderEntry,
+  RequestPausedEvent,
+  FulfillRequestParams,
+  ContinueRequestParams,
+} from "./cdp/domains/fetch.js";
 export type {
   CDPResourceTiming,
   CDPNetworkResponse,

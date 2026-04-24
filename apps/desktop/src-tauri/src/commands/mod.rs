@@ -3,6 +3,7 @@ pub mod cdp_proxy;
 pub mod chrome;
 pub mod files;
 pub mod mirror;
+pub mod mock_server;
 pub mod perf;
 pub mod port_forward;
 pub mod sqlite;

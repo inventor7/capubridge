@@ -39,3 +39,11 @@ base64 = "0.22"
 prost = "0.13"
 rusqlite = { version = "0.34", features = ["bundled"] }
 tempfile = "3"
+axum = { version = "0.8", default-features = false, features = [
+  "http1",
+  "tokio",
+  "json",
+  "macros",
+] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors"] }

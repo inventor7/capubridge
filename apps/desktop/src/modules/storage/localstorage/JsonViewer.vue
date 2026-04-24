@@ -118,7 +118,11 @@ const matchPositions = computed(() => {
     const line = rawLines.value[i]!.raw.toLowerCase();
     let idx = line.indexOf(term);
     while (idx !== -1) {
-      positions.push({ lineIdx: i, start: idx, end: idx + filterText.value.length });
+      positions.push({
+        lineIdx: i,
+        start: idx,
+        end: idx + filterText.value.length,
+      });
       idx = line.indexOf(term, idx + 1);
     }
   }
@@ -273,7 +277,7 @@ defineExpose({ expandAll, collapseAll, toggleAll, filterInputRef });
     <div class="flex flex-1 overflow-hidden text-sm font-mono leading-5">
       <div
         v-if="!hideLineNumbers"
-        class="flex-shrink-0 select-none text-right pr-3 text-muted-foreground/30 border-r border-border/20 overflow-hidden"
+        class="flex-shrink-0 text-right pr-3 text-muted-foreground/30 border-r border-border/20 overflow-hidden"
       >
         <div v-for="(_, i) in Array.from({ length: lineCount })" :key="i" class="h-5">
           {{ i + 1 }}
