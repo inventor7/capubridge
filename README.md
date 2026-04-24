@@ -168,14 +168,15 @@ Each device session runs at one of three temperatures:
 - [x] Package manager with persistent icon cache
 - [x] File browser with protected path fallbacks
 - [x] Multi-platform builds (Linux, macOS x64/arm64, Windows)
+- [X] Storage diff — compare storage snapshots between sessions or builds
+- [X] JS console REPL — run arbitrary JavaScript in the WebView context with full autocomplete
+
+
 
 ### v1.x — Planned
 
 - [ ] Network inspector — capture and replay HTTP/WebSocket traffic from the WebView
-- [ ] JS console REPL — run arbitrary JavaScript in the WebView context with full autocomplete
 - [ ] Capacitor plugin inspector — inspect plugin bridge calls and responses live
-- [ ] Storage diff — compare storage snapshots between sessions or builds
-- [ ] Multi-device panels — side-by-side views for two connected devices
 - [ ] Crash symbolication — decode native Android stack traces using source maps
 - [ ] iOS support — WebKit inspector protocol (under investigation)
 
@@ -203,8 +204,8 @@ Grab the latest release for your platform from the [Releases](../../releases) pa
 ### Requirements
 
 - Android device with **USB debugging enabled**
-- ADB in your PATH
-- For WebView inspection: app built with `android:debuggable="true"` in `AndroidManifest.xml`
+- ADB in your PATH (it shipped with adb but if it didn't worked u can installd it from android platfroms).
+- For WebView inspection: app built with `android:debuggable="true"` in `AndroidManifest.xml` (eg. when the app is not in release mode)
 
 ### Build from Source
 
@@ -224,7 +225,7 @@ vp run tauri
 vp run -r build
 ```
 
-**Requirements:** Node 22+, pnpm 10+, Rust stable toolchain. Linux also needs: `libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`.
+**Requirements:** Node 22+, pnpm 10+, Rust stable toolchain. `libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`.
 
 ---
 
