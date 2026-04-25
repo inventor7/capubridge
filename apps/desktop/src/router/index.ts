@@ -219,6 +219,13 @@ const routes: RouteRecordRaw[] = [
     ],
   },
 
+  // ── Replay ───────────────────────────────────────────────────────────────
+  {
+    path: "/replay",
+    name: "replay",
+    component: () => import("@/modules/recording/ReplayView.vue"),
+  },
+
   // ── Catch-all ────────────────────────────────────────────────────────────
   { path: "/:pathMatch(.*)*", redirect: "/devices" },
 ];

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { Smartphone, Database, Globe, Zap, Crosshair, Settings } from "lucide-vue-next";
+import { Smartphone, Database, Globe, Zap, Crosshair, Settings, Film } from "lucide-vue-next";
 import {
   SidebarContent,
   SidebarMenu,
@@ -22,6 +22,7 @@ const navItems = [
   { to: "/network", icon: Globe, label: "Network" },
   { to: "/capacitor", icon: Zap, label: "Capacitor" },
   { to: "/inspect", icon: Crosshair, label: "Inspect" },
+  { to: "/replay", icon: Film, label: "Replay" },
 ] as const;
 
 function isActive(path: string) {
