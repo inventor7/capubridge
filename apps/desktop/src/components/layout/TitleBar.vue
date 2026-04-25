@@ -19,6 +19,7 @@ import { useTargetsStore } from "@/stores/targets.store";
 import { useDockStore } from "@/stores/dock.store";
 import { useUIStore } from "@/stores/ui.store";
 import ConnectionSummary from "./ConnectionSummary.vue";
+import RecordingButton from "@/modules/recording/RecordingButton.vue";
 
 const emit = defineEmits<{ openCommandPalette: [] }>();
 
@@ -158,6 +159,8 @@ async function close() {
           class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"
         />
       </button>
+
+      <RecordingButton />
 
       <div class="flex items-center ml-1">
         <button
