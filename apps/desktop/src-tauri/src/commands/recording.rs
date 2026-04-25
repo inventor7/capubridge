@@ -1,0 +1,257 @@
+use serde::Serialize;
+use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
+use tauri::Manager;
+use zip::write::{SimpleFileOptions, ZipWriter};
+use zip::ZipArchive;
+
+fn sessions_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("sessions");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+fn session_work_dir(app: &tauri::AppHandle, session_id: &str) -> Result<PathBuf, String> {
+    let dir = sessions_dir(app)?.join(format!("{}_work", session_id));
+    Ok(dir)
+}
+
+/// Creates the working directory structure for a new recording session.
+#[tauri::command]
+pub async fn recording_session_start(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> Result<(), String> {
+    let work_dir = session_work_dir(&app, &session_id)?;
+    let tracks_dir = work_dir.join("tracks");
+    fs::create_dir_all(&tracks_dir)
+        .map_err(|e| format!("Failed to create session dir: {}", e))?;
+    Ok(())
+}
+
+/// Appends a batch of NDJSON lines to a track file.
+/// `ndjson_batch` is pre-formatted: each line is a JSON object, lines separated by '\n'.
+#[tauri::command]
+pub async fn recording_session_append(
+    app: tauri::AppHandle,
+    session_id: String,
+    track: String,
+    ndjson_batch: String,
+) -> Result<(), String> {
+    let track_file = session_work_dir(&app, &session_id)?
+        .join("tracks")
+        .join(format!("{}.ndjson", track));
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&track_file)
+        .map_err(|e| format!("Failed to open track file: {}", e))?;
+
+    // Ensure batch ends with newline
+    let batch = if ndjson_batch.ends_with('\n') {
+        ndjson_batch
+    } else {
+        format!("{}\n", ndjson_batch)
+    };
+
+    file.write_all(batch.as_bytes())
+        .map_err(|e| format!("Failed to write batch: {}", e))?;
+
+    Ok(())
+}
+
+/// Finalizes the session: writes manifest.json directly into zip, adds all track files,
+/// removes the work directory, and returns the absolute path to the .capu file.
+#[tauri::command]
+pub async fn recording_session_stop(
+    app: tauri::AppHandle,
+    session_id: String,
+    manifest_json: String,
+) -> Result<String, String> {
+    let work_dir = session_work_dir(&app, &session_id)?;
+    let sessions_dir = sessions_dir(&app)?;
+
+    // Create the .capu zip file (manifest.json written directly — no temp disk write needed)
+    let capu_path = sessions_dir.join(format!("{}.capu", session_id));
+    let capu_file = fs::File::create(&capu_path)
+        .map_err(|e| format!("Failed to create .capu file: {}", e))?;
+
+    let mut zip = ZipWriter::new(capu_file);
+    let options =
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    // Add manifest.json directly from the string — no redundant disk write
+    zip.start_file("manifest.json", options)
+        .map_err(|e| format!("zip error: {}", e))?;
+    zip.write_all(manifest_json.as_bytes())
+        .map_err(|e| format!("zip write error: {}", e))?;
+
+    // Add all track files
+    let tracks_dir = work_dir.join("tracks");
+    if tracks_dir.exists() {
+        for entry in
+            fs::read_dir(&tracks_dir).map_err(|e| format!("Failed to read tracks dir: {}", e))?
+        {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let file_name = entry.file_name();
+            let name_str = file_name.to_string_lossy();
+            if name_str.ends_with(".ndjson") {
+                let content = fs::read(&entry.path())
+                    .map_err(|e| format!("Failed to read track: {}", e))?;
+                zip.start_file(format!("tracks/{}", name_str), options)
+                    .map_err(|e| format!("zip error: {}", e))?;
+                zip.write_all(&content)
+                    .map_err(|e| format!("zip write error: {}", e))?;
+            }
+        }
+    }
+
+    zip.finish()
+        .map_err(|e| format!("Failed to finalize zip: {}", e))?;
+
+    // Clean up work directory
+    let _ = fs::remove_dir_all(&work_dir);
+
+    Ok(capu_path.to_string_lossy().into_owned())
+}
+
+#[derive(Serialize)]
+pub struct RustSessionListItem {
+    pub session_id: String,
+    pub label: String,
+    pub started_at: u64,
+    pub duration: u64,
+    pub device_serial: Option<String>,
+    pub target_url: Option<String>,
+    pub file_path: String,
+    pub file_size_bytes: u64,
+}
+
+/// Lists all .capu sessions from the app data directory.
+/// Reads manifest.json from inside each zip without fully extracting.
+#[tauri::command]
+pub async fn recording_list_sessions(
+    app: tauri::AppHandle,
+) -> Result<Vec<RustSessionListItem>, String> {
+    let sessions_dir = sessions_dir(&app)?;
+    let mut items = Vec::new();
+
+    let entries = fs::read_dir(&sessions_dir)
+        .map_err(|e| format!("Failed to read sessions dir: {}", e))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("capu") {
+            continue;
+        }
+
+        let file_size_bytes = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+
+        // Read manifest from inside the zip
+        if let Ok(file) = fs::File::open(&path) {
+            if let Ok(mut archive) = ZipArchive::new(file) {
+                if let Ok(manifest_file) = archive.by_name("manifest.json") {
+                    if let Ok(manifest) =
+                        serde_json::from_reader::<_, serde_json::Value>(manifest_file)
+                    {
+                        let session_id = manifest["sessionId"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_string();
+                        let label = manifest["label"].as_str().unwrap_or("").to_string();
+                        let started_at = manifest["startedAt"].as_u64().unwrap_or(0);
+                        let duration = manifest["duration"].as_u64().unwrap_or(0);
+                        let device_serial = manifest["deviceSerial"].as_str().map(String::from);
+                        let target_url = manifest["targetUrl"].as_str().map(String::from);
+
+                        items.push(RustSessionListItem {
+                            session_id,
+                            label,
+                            started_at,
+                            duration,
+                            device_serial,
+                            target_url,
+                            file_path: path.to_string_lossy().into_owned(),
+                            file_size_bytes,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by started_at descending (newest first)
+    items.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    Ok(items)
+}
+
+/// Deletes a session .capu file by session ID.
+#[tauri::command]
+pub async fn recording_delete_session(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> Result<(), String> {
+    let capu_path = sessions_dir(&app)?.join(format!("{}.capu", session_id));
+    if capu_path.exists() {
+        fs::remove_file(&capu_path)
+            .map_err(|e| format!("Failed to delete session: {}", e))?;
+    }
+    // Also clean up any leftover work dir
+    let work_dir = session_work_dir(&app, &session_id)?;
+    if work_dir.exists() {
+        let _ = fs::remove_dir_all(&work_dir);
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct RustSessionContents {
+    pub manifest_json: String,
+    pub tracks: HashMap<String, String>,
+}
+
+/// Reads a .capu file and returns the manifest + all track NDJSON as strings.
+/// The frontend is responsible for parsing NDJSON into typed objects.
+#[tauri::command]
+pub async fn recording_read_session(file_path: String) -> Result<RustSessionContents, String> {
+    let file = std::fs::File::open(&file_path)
+        .map_err(|e| format!("Cannot open session file: {}", e))?;
+
+    let mut archive =
+        ZipArchive::new(file).map_err(|e| format!("Invalid .capu file: {}", e))?;
+
+    let manifest_json = {
+        let mut manifest_file = archive
+            .by_name("manifest.json")
+            .map_err(|_| "manifest.json not found in .capu file".to_string())?;
+        let mut content = String::new();
+        std::io::Read::read_to_string(&mut manifest_file, &mut content)
+            .map_err(|e| format!("Failed to read manifest: {}", e))?;
+        content
+    };
+
+    let mut tracks = HashMap::new();
+    let track_names = ["rrweb", "network", "console"];
+
+    for track in &track_names {
+        let zip_path = format!("tracks/{}.ndjson", track);
+        if let Ok(mut track_file) = archive.by_name(&zip_path) {
+            let mut content = String::new();
+            if std::io::Read::read_to_string(&mut track_file, &mut content).is_ok() {
+                tracks.insert(track.to_string(), content);
+            }
+        }
+    }
+
+    Ok(RustSessionContents {
+        manifest_json,
+        tracks,
+    })
+}

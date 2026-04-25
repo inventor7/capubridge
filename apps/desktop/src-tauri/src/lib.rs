@@ -28,6 +28,10 @@ use commands::mock_server::{
     MockServerManager,
 };
 use commands::perf::{adb_perf_start, adb_perf_stop};
+use commands::recording::{
+    recording_delete_session, recording_list_sessions, recording_read_session,
+    recording_session_append, recording_session_start, recording_session_stop,
+};
 use commands::port_forward::{adb_fetch_json_targets, adb_forward_cdp, adb_remove_forward};
 use commands::sqlite::{
     sqlite_close_database, sqlite_execute_query, sqlite_list_databases, sqlite_open_database,
@@ -71,6 +75,7 @@ pub fn run() {
     let session_registry = SessionRegistryState::new();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(session_registry.clone())
         .manage(MockServerManager::new())
@@ -204,6 +209,12 @@ pub fn run() {
             mock_server_stop,
             mock_server_sync_rules,
             mock_server_status,
+            recording_session_start,
+            recording_session_append,
+            recording_session_stop,
+            recording_list_sessions,
+            recording_delete_session,
+            recording_read_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

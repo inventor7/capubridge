@@ -47,3 +47,5 @@ axum = { version = "0.8", default-features = false, features = [
 ] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tauri-plugin-dialog = "2"
