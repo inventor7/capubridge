@@ -1,4 +1,4 @@
-import { computed, onUnmounted, ref } from "vue";
+import { computed, onUnmounted, ref, markRaw } from "vue";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { toast } from "vue-sonner";
 import { useCDP } from "@/composables/useCDP";
@@ -8,6 +8,7 @@ import { useMirrorStore } from "@/stores/mirror.store";
 import { useSourceStore } from "@/stores/source.store";
 import type { CDPTarget } from "@/types/cdp.types";
 import type { CDPClient } from "utils";
+import MediaSavedToast from "@/components/common/MediaSavedToast.vue";
 
 export const AndroidKey = {
   HOME: 3,
@@ -1009,11 +1010,23 @@ export function useMirrorStream() {
   async function downloadScreenshot() {
     try {
       const b64 = await takeScreenshot();
-      const a = document.createElement("a");
-      a.href = `data:image/png;base64,${b64}`;
-      a.download = `screenshot_${Date.now()}.png`;
-      a.click();
-      toast.success("Screenshot saved");
+
+      const { downloadDir, join } = await import("@tauri-apps/api/path");
+      const dir = await downloadDir();
+      const filename = `screenshot_${Date.now()}.png`;
+      const savePath = await join(dir, filename);
+
+      await invoke("save_base64_file", { path: savePath, data: b64 });
+
+      toast.custom(markRaw(MediaSavedToast), {
+        componentProps: {
+          type: "screenshot",
+          name: filename,
+          path: savePath,
+          thumbnailBase64: b64,
+        },
+        duration: 5000,
+      });
     } catch (screenshotErr) {
       toast.error("Screenshot failed", { description: String(screenshotErr) });
     }
@@ -1313,16 +1326,27 @@ export function useMirrorStream() {
     try {
       const { downloadDir, join } = await import("@tauri-apps/api/path");
       const dir = await downloadDir();
-      const savePath = await join(dir, `capubridge_rec_${Date.now()}.mp4`);
-      toast.info("Saving recording…");
+      const filename = `capubridge_rec_${Date.now()}.mp4`;
+      const savePath = await join(dir, filename);
+      toast.info("Saving recording…", { id: "saving-recording" });
       await invoke("adb_mirror_stop_recording", {
         serial,
         savePath,
       });
       mirrorStore.isRecording = false;
-      toast.success("Recording saved", { description: savePath });
+      toast.dismiss("saving-recording");
+
+      toast.custom(markRaw(MediaSavedToast), {
+        componentProps: {
+          type: "video",
+          name: filename,
+          path: savePath,
+        },
+        duration: 5000,
+      });
     } catch (saveErr) {
       mirrorStore.isRecording = false;
+      toast.dismiss("saving-recording");
       toast.error("Save failed", { description: String(saveErr) });
     }
   }

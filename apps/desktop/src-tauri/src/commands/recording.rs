@@ -17,8 +17,25 @@ fn sessions_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Validates a session id: must be non-empty, no path separators, no leading dot.
+/// Returns the cleaned id or an error message.
+fn validate_session_id(session_id: &str) -> Result<&str, String> {
+    let trimmed = session_id.trim();
+    if trimmed.is_empty() {
+        return Err("session_id is empty — recording state is corrupted".to_string());
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+        return Err(format!("Invalid session_id: {}", trimmed));
+    }
+    if trimmed.starts_with('.') {
+        return Err(format!("Invalid session_id (leading dot): {}", trimmed));
+    }
+    Ok(trimmed)
+}
+
 fn session_work_dir(app: &tauri::AppHandle, session_id: &str) -> Result<PathBuf, String> {
-    let dir = sessions_dir(app)?.join(format!("{}_work", session_id));
+    let id = validate_session_id(session_id)?;
+    let dir = sessions_dir(app)?.join(format!("{}_work", id));
     Ok(dir)
 }
 
@@ -75,11 +92,12 @@ pub async fn recording_session_stop(
     session_id: String,
     manifest_json: String,
 ) -> Result<String, String> {
-    let work_dir = session_work_dir(&app, &session_id)?;
+    let validated_id = validate_session_id(&session_id)?.to_string();
+    let work_dir = session_work_dir(&app, &validated_id)?;
     let sessions_dir = sessions_dir(&app)?;
 
     // Create the .capu zip file (manifest.json written directly — no temp disk write needed)
-    let capu_path = sessions_dir.join(format!("{}.capu", session_id));
+    let capu_path = sessions_dir.join(format!("{}.capu", validated_id));
     let capu_file = fs::File::create(&capu_path)
         .map_err(|e| format!("Failed to create .capu file: {}", e))?;
 
@@ -215,6 +233,69 @@ pub async fn recording_delete_session(
 pub struct RustSessionContents {
     pub manifest_json: String,
     pub tracks: HashMap<String, String>,
+}
+
+/// Removes orphaned recording artifacts:
+/// - Any file with name starting with `.` (e.g. malformed `.capu` files from old bugs)
+/// - Any `*_work` directory whose corresponding `.capu` does not exist
+///
+/// Returns the number of items cleaned up.
+#[tauri::command]
+pub async fn recording_cleanup_orphans(app: tauri::AppHandle) -> Result<u32, String> {
+    let dir = sessions_dir(&app)?;
+    let mut cleaned: u32 = 0;
+
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(0),
+    };
+
+    // First pass: collect all known capu session IDs
+    let mut known_capu_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext == "capu" && !stem.is_empty() {
+            known_capu_ids.insert(stem.to_string());
+        }
+    }
+
+    // Second pass: clean up
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        // Remove any leading-dot files (malformed .capu from earlier bug)
+        if file_name.starts_with('.') {
+            let _ = if path.is_dir() {
+                fs::remove_dir_all(&path)
+            } else {
+                fs::remove_file(&path)
+            };
+            cleaned += 1;
+            continue;
+        }
+
+        // Remove orphaned _work directories
+        if path.is_dir() {
+            if let Some(stripped) = file_name.strip_suffix("_work") {
+                if stripped.is_empty() || !known_capu_ids.contains(stripped) {
+                    let _ = fs::remove_dir_all(&path);
+                    cleaned += 1;
+                }
+            }
+        }
+    }
+
+    Ok(cleaned)
 }
 
 /// Reads a .capu file and returns the manifest + all track NDJSON as strings.

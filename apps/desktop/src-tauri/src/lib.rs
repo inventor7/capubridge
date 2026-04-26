@@ -14,7 +14,9 @@ use commands::chrome::{
     chrome_activate_target, chrome_fetch_targets, chrome_find, chrome_is_running, chrome_kill_all,
     chrome_launch, chrome_open_devtools_url, chrome_open_target, chrome_verify_port,
 };
-use commands::files::{adb_delete_file, adb_list_dir, adb_open_file, adb_pull_file};
+use commands::files::{
+    adb_delete_file, adb_list_dir, adb_open_file, adb_pull_file, save_base64_file, show_in_folder,
+};
 use commands::mirror::{
     adb_mirror_get_clipboard, adb_mirror_get_screen_size, adb_mirror_inject_keycode,
     adb_mirror_inject_text, adb_mirror_keyevent, adb_mirror_launch_scrcpy,
@@ -29,8 +31,9 @@ use commands::mock_server::{
 };
 use commands::perf::{adb_perf_start, adb_perf_stop};
 use commands::recording::{
-    recording_delete_session, recording_list_sessions, recording_read_session,
-    recording_session_append, recording_session_start, recording_session_stop,
+    recording_cleanup_orphans, recording_delete_session, recording_list_sessions,
+    recording_read_session, recording_session_append, recording_session_start,
+    recording_session_stop,
 };
 use commands::port_forward::{adb_fetch_json_targets, adb_forward_cdp, adb_remove_forward};
 use commands::sqlite::{
@@ -195,6 +198,8 @@ pub fn run() {
             adb_pull_file,
             adb_open_file,
             adb_delete_file,
+            show_in_folder,
+            save_base64_file,
             sqlite_list_databases,
             sqlite_scan_all_databases,
             sqlite_open_database,
@@ -215,6 +220,7 @@ pub fn run() {
             recording_list_sessions,
             recording_delete_session,
             recording_read_session,
+            recording_cleanup_orphans,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

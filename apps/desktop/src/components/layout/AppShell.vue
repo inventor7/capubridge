@@ -155,6 +155,17 @@ onMounted(() => {
   }
 
   void bootstrapRuntime();
+
+  // Best-effort cleanup of any malformed `.capu` files or orphaned `_work` dirs
+  // left behind by a previous crashed/buggy recording session.
+  void (async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke<number>("recording_cleanup_orphans");
+    } catch {
+      // Non-fatal — user can still record
+    }
+  })();
 });
 
 onMounted(async () => {

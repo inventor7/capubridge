@@ -562,3 +562,48 @@ pub fn adb_delete_file(serial: String, path: String, is_dir: bool) -> Result<(),
 
     Ok(())
 }
+
+/// Show a file in the system file explorer
+#[tauri::command]
+pub fn show_in_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            std::process::Command::new("xdg-open")
+                .arg(parent)
+                .spawn()
+                .map_err(|e| format!("Failed to open folder: {}", e))?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Save a base64 encoded string to a file on the host machine.
+#[tauri::command]
+pub async fn save_base64_file(path: String, data: String) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let bytes = general_purpose::STANDARD
+            .decode(&data)
+            .map_err(|e| format!("Failed to decode base64: {e}"))?;
+        std::fs::write(&path, bytes).map_err(|e| format!("Failed to write file: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
