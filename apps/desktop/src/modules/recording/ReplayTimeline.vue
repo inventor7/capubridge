@@ -2,12 +2,13 @@
 import { ref, computed } from "vue";
 import { Play, Pause, SkipBack, SkipForward } from "lucide-vue-next";
 import type { TimelineClock } from "@/composables/useTimelineClock";
-import type { NetworkCapuEvent, ConsoleCapuEvent } from "@/types/replay.types";
+import type { NetworkCapuEvent, ConsoleCapuEvent, PerfCapuEvent } from "@/types/replay.types";
 
 const props = defineProps<{
   clock: TimelineClock;
   networkEvents: NetworkCapuEvent[];
   consoleEvents: ConsoleCapuEvent[];
+  perfEvents?: PerfCapuEvent[];
 }>();
 
 const emit = defineEmits<{
@@ -27,19 +28,25 @@ function formatTime(ms: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(msPart).padStart(3, "0")}`;
 }
 
+function toPct(t: number) {
+  return props.clock.durationMs.value > 0 ? (t / props.clock.durationMs.value) * 100 : 0;
+}
+
 const progressPercent = computed(() => props.clock.progress.value * 100);
 
-const networkMarkers = computed(() =>
-  props.networkEvents.map((ev) => ({
-    pct: props.clock.durationMs.value > 0 ? (ev.t / props.clock.durationMs.value) * 100 : 0,
-  })),
-);
+const networkMarkers = computed(() => props.networkEvents.map((ev) => ({ pct: toPct(ev.t) })));
 
 const consoleErrorMarkers = computed(() =>
-  props.consoleEvents
-    .filter((ev) => ev.data.level === "error")
+  props.consoleEvents.filter((ev) => ev.data.level === "error").map((ev) => ({ pct: toPct(ev.t) })),
+);
+
+// CPU spike markers: CPU ≥ 70 % → amber tick, ≥ 85 % → red tick
+const cpuSpikeMarkers = computed(() =>
+  (props.perfEvents ?? [])
+    .filter((ev) => ev.data.cpuTotal >= 70)
     .map((ev) => ({
-      pct: props.clock.durationMs.value > 0 ? (ev.t / props.clock.durationMs.value) * 100 : 0,
+      pct: toPct(ev.t),
+      hot: ev.data.cpuTotal >= 85,
     })),
 );
 
@@ -100,6 +107,7 @@ function skipForward() {
       class="relative h-6 flex items-center cursor-pointer group"
       @mousedown="onScrubberMouseDown"
     >
+      <!-- Track -->
       <div class="absolute inset-x-0 h-1.5 rounded-full bg-surface-2">
         <div
           class="absolute left-0 top-0 h-full rounded-full bg-accent transition-none"
@@ -107,20 +115,32 @@ function skipForward() {
         />
       </div>
 
+      <!-- Network markers (sky blue) -->
       <div
-        v-for="(marker, i) in networkMarkers"
+        v-for="(m, i) in networkMarkers"
         :key="`net-${i}`"
         class="absolute top-1/2 -translate-y-1/2 w-0.5 h-2 rounded-full bg-sky-400/60 pointer-events-none"
-        :style="{ left: `${marker.pct}%` }"
+        :style="{ left: `${m.pct}%` }"
       />
 
+      <!-- Console error markers (red) -->
       <div
-        v-for="(marker, i) in consoleErrorMarkers"
+        v-for="(m, i) in consoleErrorMarkers"
         :key="`err-${i}`"
         class="absolute top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-red-400/80 pointer-events-none"
-        :style="{ left: `${marker.pct}%` }"
+        :style="{ left: `${m.pct}%` }"
       />
 
+      <!-- CPU spike markers (amber / red) -->
+      <div
+        v-for="(m, i) in cpuSpikeMarkers"
+        :key="`cpu-${i}`"
+        class="absolute top-1/2 -translate-y-1/2 w-px h-2.5 rounded-full pointer-events-none"
+        :class="m.hot ? 'bg-red-500/70' : 'bg-amber-400/70'"
+        :style="{ left: `${m.pct}%` }"
+      />
+
+      <!-- Playhead -->
       <div
         class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-accent shadow-md -translate-x-1/2 transition-none group-hover:scale-110"
         :style="{ left: `${progressPercent}%` }"
@@ -162,12 +182,16 @@ function skipForward() {
 
       <div class="flex items-center gap-3 text-[11px] text-muted-foreground/50">
         <span class="flex items-center gap-1">
-          <span class="w-2 h-1 rounded bg-sky-400/60 inline-block" />
+          <span class="inline-block w-2 h-1 rounded bg-sky-400/60" />
           Network
         </span>
         <span class="flex items-center gap-1">
-          <span class="w-2 h-1.5 rounded bg-red-400/80 inline-block" />
+          <span class="inline-block w-2 h-1.5 rounded bg-red-400/80" />
           Errors
+        </span>
+        <span v-if="perfEvents?.length" class="flex items-center gap-1">
+          <span class="inline-block w-px h-2.5 rounded bg-amber-400/70" />
+          CPU spike
         </span>
       </div>
     </div>

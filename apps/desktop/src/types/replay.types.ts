@@ -141,6 +141,17 @@ export interface RustSessionListItem {
   file_size_bytes: number;
 }
 
+/** Element data extracted from the rrweb iframe on inspect-click */
+export interface ReplayInspectElement {
+  tag: string;
+  id: string;
+  cls: string; // space-separated class string
+  attrs: Array<{ name: string; value: string }>;
+  computedStyles: Array<{ name: string; value: string }>;
+  width: number; // content box px from getBoundingClientRect
+  height: number;
+}
+
 // ipc.types.ts signatures reference (Tauri commands added by recording.rs):
 // invoke<void>('recording_session_start', { sessionId: string }): Promise<void>
 // invoke<void>('recording_session_append', { sessionId: string, track: string, ndjsonBatch: string }): Promise<void>
