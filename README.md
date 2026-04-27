@@ -1,8 +1,8 @@
 # Capubridge
 
-> A desktop devtool for hybrid app developers — bridging the Android device world and the browser runtime world in one place.
+> A desktop devtool for developers debugging WebView-based Android apps — bridging the device world and runtime world in one place.
 
-Capubridge is a [Tauri 2](https://tauri.app) desktop application built for **Capacitor / Ionic / React Native / NativePHP** developers who spend their days debugging apps running inside Android WebViews. It unifies ADB device management, Chrome DevTools Protocol (CDP) inspection, deep storage exploration, and live runtime tools into a single, native-feeling GUI — without ever opening a browser tab.also worth mentioning it was built mainly for webviews but could be really handy for other android apps debugging.also u can even inspect your local browser tabs :) .
+Capubridge is a [Tauri 2](https://tauri.app) desktop application for debugging hybrid app frameworks (**Capacitor**, React Native, NativePHP, or any WebView-based Android app). It unifies ADB device management, Chrome DevTools Protocol (CDP) inspection, deep storage exploration, and live runtime tools into a single, native-feeling GUI.
 
 Inspired by [aya](https://github.com/liriliri/aya) and the raw power of the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/).
 
@@ -10,7 +10,7 @@ Inspired by [aya](https://github.com/liriliri/aya) and the raw power of the [Chr
 
 ## The Problem
 
-Debugging an app on a physical Android device today means juggling:
+Debugging WebView apps on physical Android devices today means juggling:
 
 - `adb` commands in a terminal to manage devices
 - `chrome://inspect` in a browser to find WebView targets
@@ -18,7 +18,7 @@ Debugging an app on a physical Android device today means juggling:
 - Manual `adb forward` port management per device
 - No integrated view of IndexedDB, LocalStorage, Cache API, or SQLite
 
-Capubridge replaces this fragmented workflow with a single desktop app that speaks ADB, CDP, and understands the Capacitor runtime.
+Capubridge replaces this fragmented workflow with a single desktop app that speaks ADB and CDP — works with any WebView-based Android app, whether built with Capacitor, React Native, or native Android code.
 
 ---
 
@@ -78,6 +78,14 @@ Capubridge replaces this fragmented workflow with a single desktop app that spea
 - Browse device filesystem
 - Pull files to host and open in native OS app
 - Handles protected paths gracefully (`/storage/self`, `/storage/emulated`)
+
+### Session Recording & Replay
+
+- **Record** — capture DOM mutations, network requests, console logs, and rrweb events during app usage
+- **Playback** — replay recorded sessions with frame-by-frame scrubbing and timeline navigation
+- **Multi-lane view** — synchronized replay of DOM changes, network activity, and console output
+- **Event markers** — timeline shows key events (network requests, console logs) for quick navigation
+- **Zip export** — download recordings as portable `.zip` files for sharing or archival
 
 ---
 
@@ -170,10 +178,11 @@ Each device session runs at one of three temperatures:
 - [x] Multi-platform builds (Linux, macOS x64/arm64, Windows)
 - [x] Storage diff — compare storage snapshots between sessions or builds
 - [x] JS console REPL — run arbitrary JavaScript in the WebView context with full autocomplete
+- [x] Session recording & replay — capture DOM + network + console, replay with timeline scrubbing
 
 ### v1.x — Planned
 
-- [ ] Network inspector — capture and replay HTTP/WebSocket traffic from the WebView
+- [ ] Network inspector — real-time HTTP/WebSocket traffic inspection (recorded sessions have basic network capture)
 - [ ] Capacitor plugin inspector — inspect plugin bridge calls and responses live
 - [ ] Crash symbolication — decode native Android stack traces using source maps
 - [ ] iOS support — WebKit inspector protocol (under investigation)
@@ -202,8 +211,8 @@ Grab the latest release for your platform from the [Releases](../../releases) pa
 ### Requirements
 
 - Android device with **USB debugging enabled**
-- ADB in your PATH (it shipped with adb but if it didn't worked u can installd it from android platfroms).
-- For WebView inspection: app built with `android:debuggable="true"` in `AndroidManifest.xml` (eg. when the app is not in release mode)
+- ADB in your PATH (install via Android SDK Platform Tools if needed)
+- For WebView inspection: app with debuggable WebViews (set `android:debuggable="true"` in `AndroidManifest.xml` — enabled by default for debug builds)
 
 ### Build from Source
 

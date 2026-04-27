@@ -44,7 +44,9 @@ export function buildInjectionScript(): string {
     },
     recordCanvas: false,
     recordCrossOriginIframes: false,
-    collectFonts: false,
+    collectFonts: true,
+    inlineImages: true,
+    inlineFonts: true,
   });
 
   var __capuLastUrl = window.location.href;

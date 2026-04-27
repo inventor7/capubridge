@@ -110,8 +110,14 @@ async function close() {
     </div>
 
     <!-- Center: absolutely positioned connection pill -->
-    <div class="absolute left-1/2 -translate-x-1/2" style="-webkit-app-region: no-drag">
+    <div
+      class="absolute left-1/2 -translate-x-1/2 flex flex-row items-center"
+      style="-webkit-app-region: no-drag"
+    >
       <ConnectionSummary />
+      <div class="absolute left-full ml-1.5">
+        <RecordingButton />
+      </div>
     </div>
 
     <!-- Right: dock + mirror + ⌘K + window controls -->
@@ -159,8 +165,6 @@ async function close() {
           class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"
         />
       </button>
-
-      <RecordingButton />
 
       <div class="flex items-center ml-1">
         <button

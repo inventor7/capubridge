@@ -11,6 +11,7 @@ export function useSessionWriter(sessionId: string, startedAt: number, flushInte
     rrweb: [],
     network: [],
     console: [],
+    perf: [],
   };
 
   let intervalId: ReturnType<typeof setInterval> | null = null;

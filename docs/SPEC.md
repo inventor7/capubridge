@@ -1,33 +1,35 @@
 # Capubridge Specification
 
-Capubridge desktop devtool for hybrid app debugging.
+Capubridge desktop devtool for WebView-based Android app debugging.
 
 - ADB device management
 - remote WebView/CDP inspection
 - storage exploration
 - live runtime tools
-- Capacitor-focused workflows
+- Hybrid app framework support (Capacitor, React Native, native Android, etc.)
 
-This spec reflect current implemented architecture, not old prototype shape.
+This spec reflects current implemented architecture, not old prototype shape.
 
 ---
 
 ## 1. Product goal
 
-Capubridge join two worlds in one tool:
+Capubridge joins two worlds in one tool:
 
-- browser/runtime world
+- **runtime world** (any WebView-based Android app)
   - CDP targets
   - IndexedDB
   - LocalStorage
   - Cache/OPFS/SQLite flows
   - console/runtime inspection
-- device world
+- **device world** (physical or emulated Android devices)
   - ADB devices
   - logcat
   - files
   - packages
   - mirror/perf
+
+Works with any WebView-based app: Capacitor, React Native WebView, NativePHP, or custom Android apps with embedded Chrome tabs.
 
 Main product value:
 

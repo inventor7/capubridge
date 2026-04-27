@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { Circle, Globe, Terminal, Wifi } from "lucide-vue-next";
+import { Activity, Circle, Globe, Terminal, Wifi } from "lucide-vue-next";
 import {
   Dialog,
   DialogContent,
@@ -28,12 +28,14 @@ const label = ref("Session " + new Date().toLocaleTimeString());
 const trackRrweb = ref(true);
 const trackNetwork = ref(true);
 const trackConsole = ref(true);
+const trackPerf = ref(true);
 const reloadTarget = ref(false);
 
 const hasTarget = computed(() => activeClient.value !== null);
 const canStart = computed(
   () =>
-    !recordingStore.isRecording && (trackRrweb.value || trackNetwork.value || trackConsole.value),
+    !recordingStore.isRecording &&
+    (trackRrweb.value || trackNetwork.value || trackConsole.value || trackPerf.value),
 );
 
 async function handleStart() {
@@ -44,6 +46,7 @@ async function handleStart() {
       rrweb: trackRrweb.value && hasTarget.value,
       network: trackNetwork.value,
       console: trackConsole.value,
+      perf: trackPerf.value,
     },
     reloadTarget: reloadTarget.value,
   };
@@ -117,6 +120,17 @@ async function handleStart() {
               </div>
             </div>
             <Switch :checked="trackConsole" @update:checked="trackConsole = $event" />
+          </div>
+
+          <div class="flex items-center justify-between px-2 py-1.5 rounded-sm">
+            <div class="flex items-center gap-2">
+              <Activity class="w-3.5 h-3.5 text-muted-foreground" />
+              <div>
+                <p class="text-sm">Performance</p>
+                <p class="text-[11px] text-muted-foreground">CPU, memory, heap, DOM</p>
+              </div>
+            </div>
+            <Switch :checked="trackPerf" @update:checked="trackPerf = $event" />
           </div>
         </div>
       </div>

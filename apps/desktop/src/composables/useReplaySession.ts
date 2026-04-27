@@ -5,6 +5,7 @@ import type {
   NetworkCapuEvent,
   ConsoleCapuEvent,
   RrwebCapuEvent,
+  PerfCapuEvent,
 } from "@/types/replay.types";
 
 export interface LoadedSession {
@@ -12,13 +13,15 @@ export interface LoadedSession {
   rrwebEvents: RrwebCapuEvent[];
   networkEvents: NetworkCapuEvent[];
   consoleEvents: ConsoleCapuEvent[];
+  perfEvents: PerfCapuEvent[];
 }
 
-export function useReplaySession() {
-  const session = ref<LoadedSession | null>(null);
-  const isLoading = ref(false);
-  const error = ref<string | null>(null);
+// Module-level singletons — survive route navigation
+const session = ref<LoadedSession | null>(null);
+const isLoading = ref(false);
+const error = ref<string | null>(null);
 
+export function useReplaySession() {
   function parseNdjson<T>(ndjson: string): T[] {
     return ndjson
       .split("\n")
@@ -39,6 +42,8 @@ export function useReplaySession() {
       );
 
       const manifest = JSON.parse(raw.manifest_json) as SessionManifest;
+      console.log("[replay] manifest:", manifest);
+      console.log("[replay] available tracks:", Object.keys(raw.tracks));
 
       const rrwebEvents = raw.tracks["rrweb"]
         ? parseNdjson<RrwebCapuEvent>(raw.tracks["rrweb"])
@@ -49,10 +54,28 @@ export function useReplaySession() {
       const consoleEvents = raw.tracks["console"]
         ? parseNdjson<ConsoleCapuEvent>(raw.tracks["console"])
         : [];
+      const perfEvents = raw.tracks["perf"] ? parseNdjson<PerfCapuEvent>(raw.tracks["perf"]) : [];
 
-      session.value = { manifest, rrwebEvents, networkEvents, consoleEvents };
+      console.log("[replay] rrweb:", rrwebEvents.length, "events");
+      console.log("[replay] network:", networkEvents.length, "events");
+      console.log("[replay] console:", consoleEvents.length, "events");
+      console.log("[replay] perf:", perfEvents.length, "events");
+      if (perfEvents.length > 0) {
+        console.log("[replay] perf[0]:", perfEvents[0]);
+        console.log("[replay] perf[-1]:", perfEvents.at(-1));
+      } else {
+        console.warn(
+          "[replay] perf track empty — raw track present?",
+          "perf" in raw.tracks,
+          "raw length:",
+          raw.tracks["perf"]?.length ?? 0,
+        );
+      }
+
+      session.value = { manifest, rrwebEvents, networkEvents, consoleEvents, perfEvents };
     } catch (err) {
       error.value = String(err);
+      console.error("[replay] load failed:", err);
     } finally {
       isLoading.value = false;
     }

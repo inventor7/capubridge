@@ -319,7 +319,7 @@ pub async fn recording_read_session(file_path: String) -> Result<RustSessionCont
     };
 
     let mut tracks = HashMap::new();
-    let track_names = ["rrweb", "network", "console"];
+    let track_names = ["rrweb", "network", "console", "perf"];
 
     for track in &track_names {
         let zip_path = format!("tracks/{}.ndjson", track);

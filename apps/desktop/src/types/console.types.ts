@@ -1,5 +1,26 @@
 export type ConsoleEntryLevel = "log" | "info" | "warn" | "error" | "debug";
 
+export interface ConsoleArgPrimitive {
+  kind: "primitive";
+  text: string;
+}
+
+export interface ConsoleArgObject {
+  kind: "object";
+  description: string;
+  subtype: string | null;
+  properties: ConsoleProp[];
+  overflow: boolean;
+  objectId: string | null;
+}
+
+export type ConsoleArg = ConsoleArgPrimitive | ConsoleArgObject;
+
+export interface ConsoleProp {
+  name: string;
+  value: ConsoleArg;
+}
+
 export interface ConsoleEntry {
   id: string;
   targetId: string;
@@ -8,6 +29,10 @@ export interface ConsoleEntry {
   level: ConsoleEntryLevel;
   source: string;
   message: string;
+  args: ConsoleArg[];
+  parentId: string | null;
+  isGroup: boolean;
+  groupCollapsed: boolean;
   origin: "runtime" | "log";
   type: string;
   url: string | null;

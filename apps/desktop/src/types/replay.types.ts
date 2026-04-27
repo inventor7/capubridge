@@ -1,11 +1,12 @@
 /** Track names supported in Phase 1 */
-export type TrackName = "rrweb" | "network" | "console";
+export type TrackName = "rrweb" | "network" | "console" | "perf";
 
 /** Per-track enable flags in a recording config */
 export interface TrackConfig {
   rrweb: boolean;
   network: boolean;
   console: boolean;
+  perf?: boolean;
 }
 
 /** Written as manifest.json at the root of the .capu zip */
@@ -39,6 +40,18 @@ export interface CapuEvent<T = unknown> {
   data: T;
 }
 
+export interface NetworkCapuTiming {
+  dnsStart: number;
+  dnsEnd: number;
+  connectStart: number;
+  connectEnd: number;
+  sslStart: number;
+  sslEnd: number;
+  sendStart: number;
+  sendEnd: number;
+  receiveHeadersEnd: number;
+}
+
 /** Shape of a network event in network.ndjson */
 export type NetworkCapuEvent = CapuEvent<{
   requestId: string;
@@ -46,9 +59,17 @@ export type NetworkCapuEvent = CapuEvent<{
   method: string;
   status: number | null;
   resourceType: string;
-  duration: number | null; // ms, null if not yet complete
+  duration: number | null;
   transferSize: number;
   state: string;
+  mimeType: string | null;
+  requestHeaders: Record<string, string> | null;
+  responseHeaders: Record<string, string> | null;
+  requestBody: string | null;
+  responseBody: string | null;
+  responseBodyBase64: boolean;
+  timing: NetworkCapuTiming | null;
+  initiator: string | null;
 }>;
 
 /** Shape of a console event in console.ndjson */
@@ -57,7 +78,46 @@ export type ConsoleCapuEvent = CapuEvent<{
   text: string;
   source: string | null;
   line: number | null;
+  id?: string;
+  parentId?: string | null;
+  isGroup?: boolean;
+  groupCollapsed?: boolean;
+  args?: ConsoleArgRecord[];
 }>;
+
+export type ConsoleArgRecord =
+  | { kind: "primitive"; text: string }
+  | {
+      kind: "object";
+      description: string;
+      subtype: string | null;
+      properties: ConsolePropRecord[];
+      overflow: boolean;
+    };
+
+export interface ConsolePropRecord {
+  name: string;
+  value: ConsoleArgRecord;
+}
+
+export interface PerfCapuSample {
+  cpuTotal: number;
+  cpuCores: Array<{ core: number; usage: number }>;
+  memUsedPct: number;
+  memUsedKb: number;
+  memTotalKb: number;
+  rxBps: number;
+  txBps: number;
+  batteryLevel: number;
+  batteryCharging: boolean;
+  batteryTemp: number;
+  cpuTemp: number | null;
+  jsHeapUsedMb: number | null;
+  jsHeapTotalMb: number | null;
+  domNodes: number | null;
+}
+
+export type PerfCapuEvent = CapuEvent<PerfCapuSample>;
 
 /** rrweb events are passed through as-is from the rrweb recorder */
 export type RrwebCapuEvent = CapuEvent<unknown>; // rrweb types its own events internally

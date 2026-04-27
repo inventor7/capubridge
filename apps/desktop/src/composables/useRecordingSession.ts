@@ -5,8 +5,10 @@ import { useConsoleStore } from "@/stores/console.store";
 import { useSessionWriter } from "./useSessionWriter";
 import { useRrwebRecorder } from "./useRrwebRecorder";
 import { useNetworkRecorder } from "./useNetworkRecorder";
+import { usePerfRecorder } from "./usePerfRecorder";
 import { useCDP } from "./useCDP";
-import type { RecordingConfig, SessionManifest } from "@/types/replay.types";
+import type { RecordingConfig, SessionManifest, ConsoleArgRecord } from "@/types/replay.types";
+import type { ConsoleArg } from "@/types/console.types";
 import { useDevicesStore } from "@/stores/devices.store";
 import { useTargetsStore } from "@/stores/targets.store";
 import { toast } from "vue-sonner";
@@ -14,6 +16,7 @@ import { toast } from "vue-sonner";
 let writer: ReturnType<typeof useSessionWriter> | null = null;
 let rrwebRecorder: ReturnType<typeof useRrwebRecorder> | null = null;
 let networkRecorder: ReturnType<typeof useNetworkRecorder> | null = null;
+let perfRecorder: ReturnType<typeof usePerfRecorder> | null = null;
 let consoleUnwatch: (() => void) | null = null;
 let consoleLeasedByRecorder = false;
 let startedAt = 0;
@@ -23,6 +26,17 @@ const recordingScope = effectScope(true);
 
 function generateSessionId(): string {
   return `capu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function argToRecord(a: ConsoleArg): ConsoleArgRecord {
+  if (a.kind === "primitive") return { kind: "primitive", text: a.text };
+  return {
+    kind: "object",
+    description: a.description,
+    subtype: a.subtype,
+    overflow: a.overflow,
+    properties: a.properties.map((p) => ({ name: p.name, value: argToRecord(p.value) })),
+  };
 }
 
 export function useRecordingSession() {
@@ -99,6 +113,11 @@ export function useRecordingSession() {
                   text: entry.message ?? "",
                   source: entry.source ?? null,
                   line: entry.lineNumber ?? null,
+                  id: entry.id,
+                  parentId: entry.parentId,
+                  isGroup: entry.isGroup,
+                  groupCollapsed: entry.groupCollapsed,
+                  args: (entry.args ?? []).map(argToRecord),
                 },
                 entry.timestamp ?? startedAt,
               );
@@ -106,6 +125,24 @@ export function useRecordingSession() {
           },
         );
       });
+    }
+
+    if (config.tracks.perf) {
+      const serial = devicesStore.selectedDevice?.serial;
+      if (!serial) {
+        toast.warning("Performance track skipped: no device selected");
+      } else {
+        perfRecorder = usePerfRecorder(serial, activeClient.value, writer, startedAt);
+        try {
+          await perfRecorder.start();
+          console.log("[recording] perf recorder started");
+        } catch (err) {
+          const msg = `Perf recorder failed: ${String(err)}`;
+          console.error("[recording]", msg);
+          toast.error(msg);
+          perfRecorder = null;
+        }
+      }
     }
 
     if (config.tracks.rrweb) {
@@ -144,6 +181,9 @@ export function useRecordingSession() {
     await networkRecorder?.stop();
     networkRecorder = null;
 
+    await perfRecorder?.stop();
+    perfRecorder = null;
+
     consoleUnwatch?.();
     consoleUnwatch = null;
 
@@ -168,7 +208,12 @@ export function useRecordingSession() {
       deviceSerial: devicesStore.selectedDevice?.serial ?? null,
       targetUrl: targetsStore.selectedTarget?.url ?? null,
       appPackage: null,
-      tracks: recordingStore.config?.tracks ?? { rrweb: false, network: false, console: false },
+      tracks: recordingStore.config?.tracks ?? {
+        rrweb: false,
+        network: false,
+        console: false,
+        perf: false,
+      },
     };
 
     let capuPath: string | null = null;

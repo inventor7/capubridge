@@ -8,8 +8,9 @@ import { useReplaySession } from "@/composables/useReplaySession";
 import { Button } from "@/components/ui/button";
 import ReplayPlayer from "./ReplayPlayer.vue";
 import ReplayTimeline from "./ReplayTimeline.vue";
-import ReplayNetworkLane from "./ReplayNetworkLane.vue";
+import ReplayNetworkPanel from "./ReplayNetworkPanel.vue";
 import ReplayConsoleLane from "./ReplayConsoleLane.vue";
+import ReplayPerformanceLane from "./ReplayPerformanceLane.vue";
 
 const route = useRoute();
 const { session, isLoading, error, load } = useReplaySession();
@@ -17,7 +18,27 @@ const { session, isLoading, error, load } = useReplaySession();
 const clock = useTimelineClock(0);
 
 const playerRef = ref<InstanceType<typeof ReplayPlayer> | null>(null);
-const activePane = ref<"network" | "console">("network");
+const activePane = ref<"network" | "console" | "performance">("network");
+
+const splitRef = ref<HTMLElement | null>(null);
+const leftPct = ref(50);
+
+function startResize(e: MouseEvent) {
+  e.preventDefault();
+  const container = splitRef.value;
+  if (!container) return;
+  const onMove = (ev: MouseEvent) => {
+    const rect = container.getBoundingClientRect();
+    const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+    leftPct.value = Math.max(20, Math.min(80, pct));
+  };
+  const onUp = () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+}
 
 onMounted(() => {
   const filePath = route.query.file as string | undefined;
@@ -140,12 +161,22 @@ function formatDuration(ms: number): string {
         </Button>
       </div>
 
-      <div class="flex flex-1 min-h-0">
-        <div class="flex-1 min-w-0 p-2">
-          <ReplayPlayer ref="playerRef" :events="session.rrwebEvents" class="h-full" />
+      <div ref="splitRef" class="flex flex-1 min-h-0 overflow-hidden">
+        <div class="flex-none min-w-0 flex flex-col min-h-0 p-2" :style="{ width: leftPct + '%' }">
+          <ReplayPlayer
+            ref="playerRef"
+            :events="session.rrwebEvents"
+            :target-url="session.manifest.targetUrl"
+            class="flex-1 min-h-0"
+          />
         </div>
 
-        <div class="w-80 shrink-0 border-l border-border/20 flex flex-col min-h-0">
+        <div
+          class="w-1 shrink-0 bg-border/20 hover:bg-accent/40 active:bg-accent/60 cursor-col-resize transition-colors select-none"
+          @mousedown="startResize"
+        />
+
+        <div class="flex-1 min-w-0 border-l border-border/20 flex flex-col min-h-0">
           <div class="flex-none flex border-b border-border/20">
             <button
               class="flex-1 py-1.5 text-[11px] font-medium transition-colors"
@@ -157,6 +188,9 @@ function formatDuration(ms: number): string {
               @click="activePane = 'network'"
             >
               Network
+              <span class="ml-1 text-muted-foreground/40 text-[10px]">
+                {{ session.networkEvents.length }}
+              </span>
             </button>
             <button
               class="flex-1 py-1.5 text-[11px] font-medium transition-colors"
@@ -168,20 +202,42 @@ function formatDuration(ms: number): string {
               @click="activePane = 'console'"
             >
               Console
+              <span class="ml-1 text-muted-foreground/40 text-[10px]">
+                {{ session.consoleEvents.length }}
+              </span>
+            </button>
+            <button
+              class="flex-1 py-1.5 text-[11px] font-medium transition-colors"
+              :class="
+                activePane === 'performance'
+                  ? 'text-foreground border-b-2 border-accent'
+                  : 'text-muted-foreground/50 hover:text-foreground'
+              "
+              @click="activePane = 'performance'"
+            >
+              Performance
             </button>
           </div>
 
           <div class="flex-1 min-h-0">
-            <ReplayNetworkLane
+            <ReplayNetworkPanel
               v-if="activePane === 'network'"
               :events="session.networkEvents"
               :position-ms="clock.positionMs.value"
               class="h-full"
             />
             <ReplayConsoleLane
-              v-else
+              v-else-if="activePane === 'console'"
               :events="session.consoleEvents"
               :position-ms="clock.positionMs.value"
+              class="h-full"
+            />
+            <ReplayPerformanceLane
+              v-else
+              :perf-events="session.perfEvents"
+              :network-events="session.networkEvents"
+              :position-ms="clock.positionMs.value"
+              :duration="session.manifest.duration"
               class="h-full"
             />
           </div>

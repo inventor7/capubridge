@@ -10,11 +10,13 @@ import { useDockStore } from "@/stores/dock.store";
 import { useTargetsStore } from "@/stores/targets.store";
 import type { CDPTarget } from "@/types/cdp.types";
 import type {
+  ConsoleArg,
   ConsoleEntry,
   ConsoleEntryLevel,
   ConsoleExceptionEntry,
   ReplHistoryEntry,
 } from "@/types/console.types";
+import { parseRemoteValue, flattenArgsForMessage } from "@/lib/console-parse";
 
 const maxConsoleEntries = 500;
 const maxExceptionEntries = 160;
@@ -57,63 +59,6 @@ function trimList<T>(items: T[], maxItems: number): T[] {
 
 function buildId(parts: Array<string | number | null | undefined>) {
   return parts.map((part) => (part == null ? "null" : String(part))).join(":");
-}
-
-function formatJsonValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return `${value}`;
-  }
-
-  if (value === undefined) {
-    return "undefined";
-  }
-
-  if (value === null) {
-    return "null";
-  }
-
-  try {
-    const json = JSON.stringify(value, null, 2);
-    if (json !== undefined) {
-      return json;
-    }
-  } catch {
-    return Object.prototype.toString.call(value);
-  }
-
-  return Object.prototype.toString.call(value);
-}
-
-function formatRemoteValue(value: unknown): string {
-  if (!isRecord(value)) {
-    return formatJsonValue(value);
-  }
-
-  if (typeof value.unserializableValue === "string") {
-    return value.unserializableValue;
-  }
-
-  if ("value" in value) {
-    return formatJsonValue(value.value);
-  }
-
-  if (value.subtype === "null") {
-    return "null";
-  }
-
-  if (typeof value.description === "string" && value.description) {
-    return value.description;
-  }
-
-  if (typeof value.type === "string") {
-    return value.type;
-  }
-
-  return "[unknown]";
 }
 
 function buildSourceLabel(
@@ -221,6 +166,8 @@ export const useConsoleStore = defineStore("console", () => {
   let initializePromise: Promise<void> | null = null;
   let stopWatchHandle: WatchStopHandle | null = null;
   let clientCleanups: ClientCleanup[] = [];
+  let groupStack: string[] = [];
+  let idCounter = 0;
 
   function clearClientBindings() {
     clientCleanups.forEach((cleanup) => cleanup());
@@ -233,10 +180,12 @@ export const useConsoleStore = defineStore("console", () => {
     exceptions.value = [];
     replHistory.value = [];
     error.value = null;
+    groupStack = [];
   }
 
   function clearConsole() {
     entries.value = [];
+    groupStack = [];
   }
 
   function clearExceptions() {
@@ -256,16 +205,19 @@ export const useConsoleStore = defineStore("console", () => {
   }
 
   function pushConsoleEntry(entry: ConsoleEntry) {
-    const lastEntry = entries.value.at(-1);
-    if (
-      lastEntry &&
-      lastEntry.origin === entry.origin &&
-      lastEntry.level === entry.level &&
-      lastEntry.source === entry.source &&
-      lastEntry.message === entry.message &&
-      Math.abs(lastEntry.timestamp - entry.timestamp) < 250
-    ) {
-      return;
+    if (!entry.isGroup) {
+      const lastEntry = entries.value.at(-1);
+      if (
+        lastEntry &&
+        lastEntry.origin === entry.origin &&
+        lastEntry.level === entry.level &&
+        lastEntry.source === entry.source &&
+        lastEntry.message === entry.message &&
+        lastEntry.parentId === entry.parentId &&
+        Math.abs(lastEntry.timestamp - entry.timestamp) < 250
+      ) {
+        return;
+      }
     }
 
     entries.value = trimList([...entries.value, entry], maxConsoleEntries);
@@ -284,32 +236,65 @@ export const useConsoleStore = defineStore("console", () => {
   function handleRuntimeConsole(targetId: string, payload: unknown) {
     const params = isRecord(payload) ? payload : {};
     const runtimeType = typeof params.type === "string" ? params.type : "log";
+
+    if (runtimeType === "endGroup") {
+      groupStack.pop();
+      return;
+    }
+    if (runtimeType === "clear") return;
+
+    const isGroup = runtimeType === "startGroup" || runtimeType === "startGroupCollapsed";
+    const groupCollapsed = runtimeType === "startGroupCollapsed";
+    const rawParentId = groupStack[groupStack.length - 1] ?? null;
+
     const timestamp = normalizeTimestamp(params.timestamp);
-    const args = Array.isArray(params.args) ? params.args : [];
+    const rawArgs = Array.isArray(params.args) ? params.args : [];
+    const args = rawArgs.map((a) => parseRemoteValue(a));
     const stackTrace = isRecord(params.stackTrace) ? params.stackTrace : null;
     const callFrames = Array.isArray(stackTrace?.callFrames) ? stackTrace.callFrames : [];
     const frame = isRecord(callFrames[0]) ? callFrames[0] : null;
     const sourceDetails = readFrameSource(frame);
-    const message =
-      args
-        .map((arg) => formatRemoteValue(arg))
-        .join(" ")
-        .trim() || runtimeType;
+    const message = flattenArgsForMessage(args) || runtimeType;
+
+    if (isGroup && rawParentId) {
+      const parent = entries.value.find((e) => e.id === rawParentId);
+      if (
+        parent &&
+        parent.isGroup &&
+        parent.message === message &&
+        parent.source === sourceDetails.source
+      ) {
+        groupStack.push(rawParentId);
+        return;
+      }
+    }
+
+    const seq = ++idCounter;
+    const id = buildId([targetId, "runtime", timestamp, runtimeType, seq]);
+    const parentId = rawParentId === id ? null : rawParentId;
 
     pushConsoleEntry({
-      id: buildId([targetId, "runtime", timestamp, runtimeType, sourceDetails.source, message]),
+      id,
       targetId,
       timestamp,
       timestampLabel: formatTimestamp(timestamp),
       level: runtimeLevelFromType(runtimeType),
       source: sourceDetails.source,
       message,
+      args,
+      parentId,
+      isGroup,
+      groupCollapsed,
       origin: "runtime",
       type: runtimeType,
       url: sourceDetails.url,
       lineNumber: sourceDetails.lineNumber,
       columnNumber: sourceDetails.columnNumber,
     });
+
+    if (isGroup) {
+      groupStack.push(id);
+    }
   }
 
   function handleLogEntry(targetId: string, payload: unknown) {
@@ -325,15 +310,24 @@ export const useConsoleStore = defineStore("console", () => {
         : null;
     const source = buildSourceLabel(url, lineNumber, null) || sourceType;
     const message = typeof entry.text === "string" && entry.text ? entry.text : sourceType;
+    const args: ConsoleArg[] = [{ kind: "primitive", text: message }];
+    const seq = ++idCounter;
+    const id = buildId([targetId, "log", timestamp, levelType, seq]);
+    const rawParentId = groupStack[groupStack.length - 1] ?? null;
+    const parentId = rawParentId === id ? null : rawParentId;
 
     pushConsoleEntry({
-      id: buildId([targetId, "log", timestamp, levelType, source, message]),
+      id,
       targetId,
       timestamp,
       timestampLabel: formatTimestamp(timestamp),
       level: logLevelFromType(levelType),
       source,
       message,
+      args,
+      parentId,
+      isGroup: false,
+      groupCollapsed: false,
       origin: "log",
       type: levelType,
       url,
@@ -618,7 +612,8 @@ export const useConsoleStore = defineStore("console", () => {
         throw new Error(message);
       }
 
-      const resultText = formatRemoteValue(response.result);
+      const resultArg = parseRemoteValue(response.result);
+      const resultText = resultArg.kind === "primitive" ? resultArg.text : resultArg.description;
       pushReplEntry({
         id: buildId(["repl", timestamp, "ok", normalizedExpression]),
         targetId,
@@ -644,6 +639,31 @@ export const useConsoleStore = defineStore("console", () => {
     }
   }
 
+  async function fetchObjectProperties(
+    objectId: string,
+  ): Promise<Array<{ name: string; value: ConsoleArg }>> {
+    const client = boundTargetId.value ? connectionStore.getClient(boundTargetId.value) : null;
+    if (!client) return [];
+
+    const res = await client.send<{ result?: Array<Record<string, unknown>> }>(
+      "Runtime.getProperties",
+      {
+        objectId,
+        ownProperties: true,
+        accessorPropertiesOnly: false,
+        generatePreview: true,
+      },
+    );
+
+    const items = Array.isArray(res.result) ? res.result : [];
+    return items
+      .filter((it) => it.enumerable !== false)
+      .map((it) => ({
+        name: typeof it.name === "string" ? it.name : "?",
+        value: parseRemoteValue(it.value),
+      }));
+  }
+
   return {
     entries,
     exceptions,
@@ -659,6 +679,7 @@ export const useConsoleStore = defineStore("console", () => {
     acquireLease,
     releaseLease,
     evaluate,
+    fetchObjectProperties,
     clearConsole,
     clearExceptions,
     clearReplHistory,

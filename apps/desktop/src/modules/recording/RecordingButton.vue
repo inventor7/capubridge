@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from "vue";
-import { Circle, Square } from "lucide-vue-next";
+import { Play, Pause } from "lucide-vue-next";
 import { useRecordingStore } from "@/stores/recording.store";
 import { useRecordingSession } from "@/composables/useRecordingSession";
 import RecordingConfigModal from "./RecordingConfigModal.vue";
@@ -76,14 +76,14 @@ async function handleClick() {
     @click="handleClick"
   >
     <template v-if="recordingStore.phase === 'idle'">
-      <Circle class="w-3 h-3" />
+      <Play class="w-3 h-3" />
       <span>Record</span>
     </template>
 
     <template v-else-if="recordingStore.phase === 'recording'">
       <span class="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
       <span>{{ formatElapsed(elapsedMs) }}</span>
-      <Square class="w-2.5 h-2.5 fill-current" />
+      <Pause class="w-2.5 h-2.5 fill-current" />
     </template>
 
     <template v-else>

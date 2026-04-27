@@ -1,49 +1,133 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import type { ConsoleCapuEvent } from "@/types/replay.types";
+import { computed, ref } from "vue";
+import { ChevronRight } from "lucide-vue-next";
+import type { ConsoleCapuEvent, ConsoleArgRecord, ConsolePropRecord } from "@/types/replay.types";
+import type { ConsoleArg, ConsoleProp } from "@/types/console.types";
+import ConsoleArgsView from "@/components/console/ConsoleArgsView.vue";
 
 const props = defineProps<{
   events: ConsoleCapuEvent[];
   positionMs: number;
 }>();
 
-function levelColor(level: string): string {
-  switch (level) {
-    case "error":
-      return "text-red-400";
-    case "warn":
-    case "warning":
-      return "text-yellow-400";
-    case "info":
-      return "text-sky-400";
-    default:
-      return "text-muted-foreground";
+const groupOverride = ref(new Map<string, boolean>());
+
+interface Row {
+  key: string;
+  ev: ConsoleCapuEvent;
+  args: ConsoleArg[];
+  isGroup: boolean;
+  groupCollapsed: boolean;
+  id: string | null;
+  parentId: string | null;
+}
+
+function recordToArg(r: ConsoleArgRecord): ConsoleArg {
+  if (r.kind === "primitive") return { kind: "primitive", text: r.text };
+  return {
+    kind: "object",
+    description: r.description,
+    subtype: r.subtype,
+    overflow: r.overflow,
+    objectId: null,
+    properties: r.properties.map(
+      (p: ConsolePropRecord): ConsoleProp => ({
+        name: p.name,
+        value: recordToArg(p.value),
+      }),
+    ),
+  };
+}
+
+const enriched = computed<Row[]>(() => {
+  return props.events
+    .filter((ev) => ev.t <= props.positionMs)
+    .sort((a, b) => a.t - b.t)
+    .map((ev, i) => {
+      const args: ConsoleArg[] =
+        ev.data.args && ev.data.args.length > 0
+          ? ev.data.args.map(recordToArg)
+          : [{ kind: "primitive", text: ev.data.text } as ConsoleArg];
+      return {
+        key: ev.data.id ?? `idx_${i}_${ev.t}`,
+        ev,
+        args,
+        isGroup: ev.data.isGroup ?? false,
+        groupCollapsed: ev.data.groupCollapsed ?? false,
+        id: ev.data.id ?? null,
+        parentId: ev.data.parentId ?? null,
+      };
+    });
+});
+
+const childrenByParent = computed(() => {
+  const map = new Map<string, Row[]>();
+  for (const r of enriched.value) {
+    if (r.parentId) {
+      if (!map.has(r.parentId)) map.set(r.parentId, []);
+      map.get(r.parentId)!.push(r);
+    }
   }
+  return map;
+});
+
+function isExpanded(row: Row): boolean {
+  if (!row.id) return !row.groupCollapsed;
+  const o = groupOverride.value.get(row.id);
+  if (o !== undefined) return o;
+  return !row.groupCollapsed;
 }
 
-function levelBadge(level: string): string {
-  switch (level) {
-    case "error":
-      return "ERR";
-    case "warn":
-    case "warning":
-      return "WRN";
-    case "info":
-      return "INF";
-    case "debug":
-      return "DBG";
-    default:
-      return "LOG";
+function toggleGroup(row: Row) {
+  if (!row.id) return;
+  const next = new Map(groupOverride.value);
+  next.set(row.id, !isExpanded(row));
+  groupOverride.value = next;
+}
+
+const visibleRows = computed(() => {
+  const out: Array<{ row: Row; depth: number }> = [];
+  const visited = new Set<string>();
+  function visit(r: Row, depth: number) {
+    if (visited.has(r.key)) return;
+    visited.add(r.key);
+    out.push({ row: r, depth });
+    if (r.isGroup && r.id && isExpanded(r)) {
+      const kids = childrenByParent.value.get(r.id) ?? [];
+      for (const k of kids) {
+        if (k.id === r.id) continue;
+        visit(k, depth + 1);
+      }
+    }
   }
+  for (const r of enriched.value) {
+    if (r.parentId) continue;
+    visit(r, 0);
+  }
+  return out;
+});
+
+function rowClass(level: string): string {
+  if (level === "error")
+    return "bg-red-500/[0.07] border-l-2 border-red-500/60 hover:bg-red-500/[0.12]";
+  if (level === "warn" || level === "warning")
+    return "bg-yellow-500/[0.07] border-l-2 border-yellow-500/60 hover:bg-yellow-500/[0.12]";
+  return "border-l-2 border-transparent hover:bg-surface-2/40";
 }
 
-function formatOffset(t: number): string {
-  const s = Math.floor(t / 1000);
-  const ms = t % 1000;
-  return `+${s}.${String(ms).padStart(3, "0")}s`;
+function textClass(level: string): string {
+  if (level === "error") return "text-red-300";
+  if (level === "warn" || level === "warning") return "text-yellow-200";
+  if (level === "info") return "text-sky-300";
+  if (level === "debug") return "text-violet-300";
+  return "text-foreground/85";
 }
 
-const sortedEvents = computed(() => [...props.events].sort((a, b) => a.t - b.t));
+function sourceLabel(ev: ConsoleCapuEvent): string {
+  if (!ev.data.source) return "";
+  if (ev.data.line != null) return `${ev.data.source}:${ev.data.line}`;
+  return ev.data.source;
+}
 </script>
 
 <template>
@@ -52,31 +136,47 @@ const sortedEvents = computed(() => [...props.events].sort((a, b) => a.t - b.t))
       <span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
         Console
       </span>
-      <span class="text-[11px] text-muted-foreground/50">{{ events.length }} entries</span>
+      <span class="text-[11px] text-muted-foreground/40">
+        {{ enriched.length }} / {{ events.length }}
+      </span>
     </div>
 
-    <div class="flex-1 overflow-y-auto min-h-0 font-mono">
-      <div v-if="sortedEvents.length === 0" class="flex items-center justify-center h-16">
-        <p class="text-[11px] text-muted-foreground/40">No console events recorded</p>
+    <div class="flex-1 overflow-y-auto min-h-0 font-mono text-[11px]">
+      <div v-if="visibleRows.length === 0" class="flex items-center justify-center h-16">
+        <p class="text-[11px] text-muted-foreground/40">No console entries yet</p>
       </div>
 
       <div
-        v-for="(ev, i) in sortedEvents"
-        :key="i"
-        class="flex items-start gap-2 px-3 py-0.5 text-[11px] border-b border-border/10 transition-opacity"
-        :class="ev.t > positionMs ? 'opacity-25' : 'opacity-100'"
+        v-for="{ row, depth } in visibleRows"
+        :key="row.key"
+        class="group"
+        :class="rowClass(row.ev.data.level)"
       >
-        <span class="w-16 shrink-0 text-muted-foreground/50 pt-0.5">
-          {{ formatOffset(ev.t) }}
-        </span>
+        <div
+          class="flex items-start gap-1 px-2 py-1"
+          :style="{ paddingLeft: `${8 + depth * 14}px` }"
+          :class="row.isGroup ? 'cursor-pointer' : ''"
+          @click="row.isGroup && toggleGroup(row)"
+        >
+          <ChevronRight
+            v-if="row.isGroup"
+            class="mt-[2px] h-3 w-3 shrink-0 text-muted-foreground/55 transition-transform"
+            :class="isExpanded(row) ? 'rotate-90' : ''"
+          />
+          <span v-else class="mt-[2px] h-3 w-3 shrink-0" />
 
-        <span class="w-7 shrink-0 font-bold pt-0.5" :class="levelColor(ev.data.level)">
-          {{ levelBadge(ev.data.level) }}
-        </span>
+          <div class="flex-1 min-w-0">
+            <ConsoleArgsView :args="row.args" :text-class="textClass(row.ev.data.level)" />
+          </div>
 
-        <span class="flex-1 break-all whitespace-pre-wrap text-foreground/80">{{
-          ev.data.text
-        }}</span>
+          <span
+            v-if="sourceLabel(row.ev)"
+            class="ml-2 shrink-0 truncate text-[10px] text-muted-foreground/45 max-w-[35%]"
+            :title="sourceLabel(row.ev)"
+          >
+            {{ sourceLabel(row.ev) }}
+          </span>
+        </div>
       </div>
     </div>
   </div>
