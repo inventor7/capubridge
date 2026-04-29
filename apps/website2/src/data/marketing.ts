@@ -31,8 +31,8 @@ export interface BentoCard {
 }
 
 export const navItems = [
-  { label: "Surfaces", href: "#surfaces" },
-  { label: "Workflow", href: "#workflow" },
+  { label: "Features", href: "#features" },
+  { label: "Download", href: "#download" },
 ];
 
 export const screenshots: Screenshot[] = [
