@@ -9,7 +9,11 @@ import {
   ChevronsUpDown,
 } from "lucide-vue-next";
 
-const props = defineProps<{ value: string }>();
+const props = defineProps<{
+  value: string;
+  readonly?: boolean;
+  lineClass?: (lineIndex: number) => string;
+}>();
 
 const emit = defineEmits<{
   "update:value": [value: string];
@@ -230,6 +234,7 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const overlayRef = ref<HTMLElement | null>(null);
 const lineNumbersRef = ref<HTMLElement | null>(null);
 const filterInputRef = ref<HTMLInputElement | null>(null);
+const previewScrollRef = ref<HTMLElement | null>(null);
 
 // Used by gutter translateY — reactive scroll position
 const taScrollTop = ref(0);
@@ -247,12 +252,33 @@ function syncScroll() {
   }
 }
 
+function handleWheel(e: WheelEvent) {
+  if (Math.abs(e.deltaY) <= 0) return;
+  if (isAnyCollapsed.value) {
+    const preview = previewScrollRef.value;
+    if (!preview) return;
+    e.preventDefault();
+    preview.scrollTop += e.deltaY;
+    preview.scrollLeft += e.deltaX;
+    return;
+  }
+
+  const textarea = textareaRef.value;
+  if (!textarea) return;
+  e.preventDefault();
+  textarea.scrollTop += e.deltaY;
+  textarea.scrollLeft += e.deltaX;
+  syncScroll();
+}
+
 function onTextareaInput(e: Event) {
+  if (props.readonly) return;
   emit("update:value", (e.target as HTMLTextAreaElement).value);
 }
 
 function handleTab(e: KeyboardEvent) {
   if (e.key !== "Tab") return;
+  if (props.readonly) return;
   e.preventDefault();
   const ta = textareaRef.value!;
   const s = ta.selectionStart,
@@ -273,7 +299,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="flex flex-col h-full overflow-hidden">
+  <div class="flex h-full min-h-0 flex-col overflow-hidden" @wheel="handleWheel">
     <!-- toolbar -->
     <div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-border/20 shrink-0">
       <Search :size="12" class="text-muted-foreground/40 shrink-0" />
@@ -338,15 +364,18 @@ defineExpose({
       </div>
 
       <!-- rendered lines -->
-      <div class="flex-1 overflow-auto cursor-text" @click="expandAll()">
+      <div ref="previewScrollRef" class="flex-1 overflow-auto cursor-text" @click="expandAll()">
         <div
           v-for="item in visibleItems"
           :key="item.idx"
           class="h-5 leading-5 whitespace-pre relative pl-5 pr-4"
-          :class="{
-            'bg-yellow-500/5': matchLineSet.has(item.idx),
-            'bg-red-500/8': jsonError && jsonError.line === item.idx,
-          }"
+          :class="[
+            props.lineClass?.(item.idx),
+            {
+              'bg-yellow-500/5': matchLineSet.has(item.idx),
+              'bg-red-500/8': jsonError && jsonError.line === item.idx,
+            },
+          ]"
           @click.stop
         >
           <!-- collapse toggle -->
@@ -413,10 +442,13 @@ defineExpose({
               v-for="(line, i) in rawLines"
               :key="i"
               class="h-5 leading-5 whitespace-pre pl-5 pr-4"
-              :class="{
-                'bg-yellow-500/5': matchLineSet.has(i),
-                'bg-red-500/8': jsonError && jsonError.line === i,
-              }"
+              :class="[
+                props.lineClass?.(i),
+                {
+                  'bg-yellow-500/5': matchLineSet.has(i),
+                  'bg-red-500/8': jsonError && jsonError.line === i,
+                },
+              ]"
             >
               <span v-html="highlightLine(line.raw, i)" />
               <span
@@ -433,6 +465,7 @@ defineExpose({
         <textarea
           ref="textareaRef"
           :value="value"
+          :readonly="readonly"
           class="absolute inset-0 w-full h-full bg-transparent text-transparent caret-foreground font-mono text-sm leading-5 pl-5 pr-4 py-0 resize-none outline-none whitespace-pre overflow-auto [&::selection]:bg-white/15"
           spellcheck="false"
           autocomplete="off"

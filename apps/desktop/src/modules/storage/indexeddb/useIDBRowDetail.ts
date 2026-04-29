@@ -9,6 +9,7 @@ interface UseIDBRowDetailOptions {
   fetchRecord: () => ((index: number) => Promise<IDBRecord | null>) | undefined;
   onEdit: (record: IDBRecord) => void;
   onDelete: (key: IDBValidKey) => void;
+  canMutate?: (record: unknown) => boolean;
 }
 
 export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
@@ -108,7 +109,9 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
   }
 
   function saveEdit() {
-    if (!selectedRow.value || selectedKey.value == null || !jsonEditorValid.value) return;
+    const recordToSave = selectedRow.value;
+    if (!recordToSave || selectedKey.value == null || !jsonEditorValid.value) return;
+    if (options.canMutate && !options.canMutate(recordToSave)) return;
     try {
       const parsed: unknown = JSON.parse(editJson.value);
       const record: IDBRecord = {
@@ -125,6 +128,8 @@ export function useIDBRowDetail(options: UseIDBRowDetailOptions) {
 
   function deleteRow() {
     if (selectedKey.value == null) return;
+    const recordToDelete = selectedRow.value;
+    if (recordToDelete && options.canMutate && !options.canMutate(recordToDelete)) return;
     onDelete(selectedKey.value as IDBValidKey);
     toast.success("Record deleted", { description: `Key: ${editKey.value}` });
     const total = totalRecords() ?? getFilteredRows().length;
