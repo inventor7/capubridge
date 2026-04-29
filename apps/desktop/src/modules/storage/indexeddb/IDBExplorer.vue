@@ -11,16 +11,31 @@ import {
   PinOff,
   EyeOff,
   Eye,
+  MoreVertical,
+  Eraser,
 } from "lucide-vue-next";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useIDB } from "@/composables/useIDB";
 import { useCDP } from "@/composables/useCDP";
 import { useTargetsStore } from "@/stores/targets.store";
 import { useStorageSize } from "@/composables/useStorageSize";
 import { useSidebarSettings } from "@/modules/storage/stores/useSidebarSettingsStore";
 import { useStorageContextStore } from "@/modules/storage/stores/useStorageContextStore";
+import { useIndexedDBChangesStore } from "@/modules/storage/stores/useIndexedDBChangesStore";
+import {
+  useIndexedDBChangeIndex,
+  useIndexedDBTableChangeOverlay,
+} from "@/modules/storage/changes/useIndexedDBChangeOverlay";
+import type { IndexedDBChangeSummary } from "@/types/storageChanges.types";
 import type { IDBDatabaseInfo, IDBRecord } from "utils";
 import { IDBDomain } from "utils";
 import IDBTable from "./IDBTable.vue";
@@ -34,16 +49,19 @@ const storeSearch = ref("");
 const filter = ref("");
 const page = ref(0);
 const pageSize = ref(50);
+const showChangesOnly = ref(false);
 
 const dbName = computed(() => decodeURIComponent((route.params["db"] as string) ?? ""));
 const storeName = computed(() => decodeURIComponent((route.params["store"] as string) ?? ""));
 const targetsStore = useTargetsStore();
 const storageContextStore = useStorageContextStore();
+const changesStore = useIndexedDBChangesStore();
 const targetId = computed(() => targetsStore.selectedTarget?.id ?? "");
 const selectedOrigin = computed({
   get: () => storageContextStore.getSelectedOrigin(targetId.value),
   set: (value: string) => storageContextStore.setSelectedOrigin(targetId.value, value),
 });
+const { getDatabaseSummary, getStoreSummary } = useIndexedDBChangeIndex();
 
 const {
   pinnedDbs,
@@ -86,10 +104,13 @@ const {
 // Find the DB info for the currently selected DB
 const selectedDbInfo = computed<IDBDatabaseInfo | undefined>(() => {
   if (!dbName.value || !databases.value) return undefined;
-  return databases.value.find((db) => db.name === dbName.value);
+  return (
+    databases.value.find((db) => db.name === dbName.value && db.origin === selectedOrigin.value) ??
+    databases.value.find((db) => db.name === dbName.value)
+  );
 });
 
-const selectedDbOrigin = computed(() => selectedDbInfo.value?.origin ?? "");
+const activeDbOrigin = computed(() => selectedOrigin.value || selectedDbInfo.value?.origin || "");
 
 const {
   data: storeInfoData,
@@ -118,6 +139,13 @@ const filteredRecords = computed<IDBRecord[]>(() => {
       String(r.key).toLowerCase().includes(q) || JSON.stringify(r.value).toLowerCase().includes(q),
   );
 });
+
+const { recordsWithChanges, storeSummary } = useIndexedDBTableChangeOverlay(
+  filteredRecords,
+  activeDbOrigin,
+  dbName,
+  storeName,
+);
 
 // For each DB, compute the sorted + filtered store list
 function getVisibleStores(db: IDBDatabaseInfo): string[] {
@@ -181,6 +209,38 @@ function getDbKey(db: IDBDatabaseInfo) {
   return `${db.origin}::${db.name}`;
 }
 
+function hasSummaryChanges(summary: IndexedDBChangeSummary) {
+  return summary.total > 0;
+}
+
+function getSummarySegments(summary: IndexedDBChangeSummary) {
+  return [
+    { key: "add", count: summary.add, class: "bg-emerald-500" },
+    { key: "update", count: summary.update, class: "bg-amber-500" },
+    { key: "delete", count: summary.delete, class: "bg-red-500" },
+  ].filter((entry) => entry.count > 0);
+}
+
+function getDatabaseSummaryStyle(summary: IndexedDBChangeSummary) {
+  if (summary.total === 0) return {};
+
+  const color = summary.delete > 0 ? "239,68,68" : summary.update > 0 ? "245,158,11" : "16,185,129";
+
+  return {
+    background: `linear-gradient(90deg, rgba(${color}, 0.12), rgba(${color}, 0.035) 42%, transparent 92%)`,
+  };
+}
+
+function formatSummary(summary: IndexedDBChangeSummary) {
+  const parts = [
+    summary.add > 0 ? `${summary.add} added` : "",
+    summary.update > 0 ? `${summary.update} updated` : "",
+    summary.delete > 0 ? `${summary.delete} deleted` : "",
+  ].filter(Boolean);
+
+  return parts.join(", ");
+}
+
 function prevPage() {
   if (page.value > 0) page.value--;
 }
@@ -199,7 +259,7 @@ async function fetchSingleRecord(index: number): Promise<IDBRecord | null> {
   const domain = new IDBDomain(client);
   try {
     const result = await domain.getData({
-      securityOrigin: selectedDbOrigin.value,
+      securityOrigin: activeDbOrigin.value,
       databaseName: dbName.value,
       objectStoreName: storeName.value,
       skipCount: index,
@@ -259,6 +319,7 @@ function refetch() {
 watch([dbName, storeName], async () => {
   page.value = 0;
   filter.value = "";
+  showChangesOnly.value = false;
 });
 
 // Sync selectedOrigin when selectedDbInfo changes
@@ -377,8 +438,21 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
               <li v-for="db in getVisibleDatabases()" :key="getDbKey(db)" class="group/db relative">
                 <!-- DB header -->
                 <div
-                  class="flex w-full items-center gap-2 px-3 py-2 text-xs text-foreground/70 transition-colors hover:bg-surface-3/50"
+                  class="relative flex w-full items-center gap-2 px-3 py-2 text-xs text-foreground/70 transition-colors hover:bg-surface-3/50"
+                  :style="getDatabaseSummaryStyle(getDatabaseSummary(db.origin, db.name))"
                 >
+                  <div
+                    v-if="hasSummaryChanges(getDatabaseSummary(db.origin, db.name))"
+                    class="pointer-events-none absolute left-0 top-1.5 bottom-1.5 z-10 flex w-1 overflow-hidden rounded-r"
+                    :title="formatSummary(getDatabaseSummary(db.origin, db.name))"
+                  >
+                    <span
+                      v-for="segment in getSummarySegments(getDatabaseSummary(db.origin, db.name))"
+                      :key="segment.key"
+                      class="min-h-1 flex-1"
+                      :class="segment.class"
+                    />
+                  </div>
                   <button class="flex items-center gap-2 flex-1 min-w-0" @click="toggleDb(db.name)">
                     <component
                       :is="expandedDbs.has(db.name) ? ChevronDown : ChevronRight"
@@ -408,25 +482,41 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
                     <Database :size="11" />
                   </button>
 
-                  <!-- DB action icons (shown on hover) -->
-                  <div class="hidden group-hover/db:flex items-center gap-0.5 shrink-0">
-                    <!-- Pin -->
-                    <button
-                      class="p-0.5 rounded hover:bg-surface-3 text-muted-foreground/40 hover:text-foreground/70 transition-colors"
-                      :title="isDbPinned(db.origin, db.name) ? 'Unpin' : 'Pin to top'"
-                      @click.stop="togglePinDb(db.origin, db.name)"
-                    >
-                      <component :is="isDbPinned(db.origin, db.name) ? PinOff : Pin" :size="10" />
-                    </button>
-                    <!-- Hide -->
-                    <button
-                      class="p-0.5 rounded hover:bg-surface-3 text-muted-foreground/40 hover:text-foreground/70 transition-colors"
-                      :title="isDbHidden(db.origin, db.name) ? 'Unhide' : 'Hide database'"
-                      @click.stop="toggleHideDb(db.origin, db.name)"
-                    >
-                      <component :is="isDbHidden(db.origin, db.name) ? Eye : EyeOff" :size="10" />
-                    </button>
-                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <button
+                        class="flex p-0.5 rounded opacity-0 group-hover/db:opacity-100 focus:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 hover:bg-surface-3 text-muted-foreground/40 hover:text-foreground/70 transition-colors shrink-0"
+                        title="Database actions"
+                        @click.stop
+                      >
+                        <MoreVertical :size="12" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" class="w-44">
+                      <DropdownMenuItem @click="togglePinDb(db.origin, db.name)">
+                        <component
+                          :is="isDbPinned(db.origin, db.name) ? PinOff : Pin"
+                          class="h-3.5 w-3.5 mr-2"
+                        />
+                        {{ isDbPinned(db.origin, db.name) ? "Unpin database" : "Pin database" }}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem @click="toggleHideDb(db.origin, db.name)">
+                        <component
+                          :is="isDbHidden(db.origin, db.name) ? Eye : EyeOff"
+                          class="h-3.5 w-3.5 mr-2"
+                        />
+                        {{ isDbHidden(db.origin, db.name) ? "Unhide database" : "Hide database" }}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        :disabled="!hasSummaryChanges(getDatabaseSummary(db.origin, db.name))"
+                        @click="changesStore.clearDatabaseChanges(db.origin, db.name)"
+                      >
+                        <Eraser class="h-3.5 w-3.5 mr-2" />
+                        Clear DB changes
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 <!-- Store list -->
@@ -437,6 +527,20 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
                     class="group relative"
                     :data-active-store="isStoreActive(db.name, storeItem) ? '' : undefined"
                   >
+                    <div
+                      v-if="hasSummaryChanges(getStoreSummary(db.origin, db.name, storeItem))"
+                      class="pointer-events-none absolute left-0 top-1 bottom-1 z-10 flex w-1 overflow-hidden rounded-r"
+                      :title="formatSummary(getStoreSummary(db.origin, db.name, storeItem))"
+                    >
+                      <span
+                        v-for="segment in getSummarySegments(
+                          getStoreSummary(db.origin, db.name, storeItem),
+                        )"
+                        :key="segment.key"
+                        class="min-h-1 flex-1"
+                        :class="segment.class"
+                      />
+                    </div>
                     <button
                       class="flex w-full items-center gap-1.5 py-1.5 pl-[26px] pr-3 text-xs transition-colors"
                       :class="
@@ -459,26 +563,46 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
                       </span>
                     </button>
 
-                    <!-- Action icons (shown on row hover) -->
                     <div
-                      class="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5"
+                      class="absolute right-2 top-1/2 flex -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                     >
-                      <!-- Pin -->
-                      <button
-                        class="p-0.5 rounded hover:bg-surface-3 text-muted-foreground/40 hover:text-foreground/70 transition-colors"
-                        :title="isPinned(db.name, storeItem) ? 'Unpin' : 'Pin to top'"
-                        @click.stop="togglePin(db.name, storeItem)"
-                      >
-                        <component :is="isPinned(db.name, storeItem) ? PinOff : Pin" :size="10" />
-                      </button>
-                      <!-- Hide -->
-                      <button
-                        class="p-0.5 rounded hover:bg-surface-3 text-muted-foreground/40 hover:text-foreground/70 transition-colors"
-                        :title="isHidden(db.name, storeItem) ? 'Unhide' : 'Hide store'"
-                        @click.stop="toggleHide(db.name, storeItem)"
-                      >
-                        <component :is="isHidden(db.name, storeItem) ? Eye : EyeOff" :size="10" />
-                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger as-child>
+                          <button
+                            class="p-0.5 rounded hover:bg-surface-3 text-muted-foreground/40 hover:text-foreground/70 focus:text-foreground/70 transition-colors"
+                            title="Table actions"
+                            @click.stop
+                          >
+                            <MoreVertical :size="12" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" class="w-40">
+                          <DropdownMenuItem @click="togglePin(db.name, storeItem)">
+                            <component
+                              :is="isPinned(db.name, storeItem) ? PinOff : Pin"
+                              class="h-3.5 w-3.5 mr-2"
+                            />
+                            {{ isPinned(db.name, storeItem) ? "Unpin table" : "Pin table" }}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem @click="toggleHide(db.name, storeItem)">
+                            <component
+                              :is="isHidden(db.name, storeItem) ? Eye : EyeOff"
+                              class="h-3.5 w-3.5 mr-2"
+                            />
+                            {{ isHidden(db.name, storeItem) ? "Unhide table" : "Hide table" }}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            :disabled="
+                              !hasSummaryChanges(getStoreSummary(db.origin, db.name, storeItem))
+                            "
+                            @click="changesStore.clearStoreChanges(db.origin, db.name, storeItem)"
+                          >
+                            <Eraser class="h-3.5 w-3.5 mr-2" />
+                            Clear changes
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </li>
 
@@ -534,10 +658,13 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
               :page-size="pageSize"
               :has-more="hasMore"
               :record-count="totalRecords"
+              :change-summary="storeSummary"
+              :show-changes-only="showChangesOnly"
               @refresh="refetch"
               @prev="prevPage"
               @next="nextPage"
               @page-size-change="handlePageSizeChange"
+              @toggle-changes-only="showChangesOnly = !showChangesOnly"
             />
 
             <div
@@ -548,13 +675,14 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
             </div>
 
             <IDBTable
-              :records="filteredRecords"
+              :records="recordsWithChanges"
               :is-loading="isLoading"
               :store-name="storeName"
               :db-name="dbName"
               :total-records="totalRecords"
               :store-info="storeInfoData ?? []"
               :fetch-record="fetchSingleRecord"
+              :show-changes-only="showChangesOnly"
               @refresh="refetch"
               @record-edit="handleRecordEdit"
               @record-delete="handleRecordDelete"

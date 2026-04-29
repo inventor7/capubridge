@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -8,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { IndexedDBChangeSummary } from "@/types/storageChanges.types";
 
 const props = defineProps<{
   storeName: string;
@@ -17,6 +19,8 @@ const props = defineProps<{
   pageSize: number;
   hasMore: boolean;
   recordCount: number;
+  changeSummary?: IndexedDBChangeSummary;
+  showChangesOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +28,7 @@ const emit = defineEmits<{
   prev: [];
   next: [];
   pageSizeChange: [size: number];
+  toggleChangesOnly: [];
 }>();
 
 const pageSizeOptions = [50, 100, 500];
@@ -46,6 +51,41 @@ const pageSizeOptions = [50, 100, 500];
       <span class="text-xs text-muted-foreground/40 tabular-nums">
         {{ props.recordCount.toLocaleString() }} records
       </span>
+
+      <button
+        v-if="props.changeSummary?.total"
+        type="button"
+        class="flex items-center gap-1 rounded-md border px-1 py-0.5 transition-colors"
+        :class="
+          props.showChangesOnly
+            ? 'border-primary/40 bg-primary/10'
+            : 'border-transparent hover:border-border/40 hover:bg-surface-3'
+        "
+        :title="props.showChangesOnly ? 'Show all rows' : 'Show changed rows only'"
+        @click="emit('toggleChangesOnly')"
+      >
+        <Badge
+          v-if="props.changeSummary.add"
+          variant="outline"
+          class="h-5 border-emerald-500/30 bg-emerald-500/10 px-1.5 text-[10px] text-emerald-400"
+        >
+          +{{ props.changeSummary.add }}
+        </Badge>
+        <Badge
+          v-if="props.changeSummary.update"
+          variant="outline"
+          class="h-5 border-amber-500/30 bg-amber-500/10 px-1.5 text-[10px] text-amber-400"
+        >
+          ~{{ props.changeSummary.update }}
+        </Badge>
+        <Badge
+          v-if="props.changeSummary.delete"
+          variant="outline"
+          class="h-5 border-red-500/30 bg-red-500/10 px-1.5 text-[10px] text-red-400"
+        >
+          -{{ props.changeSummary.delete }}
+        </Badge>
+      </button>
 
       <!-- Page size selector -->
       <Select
