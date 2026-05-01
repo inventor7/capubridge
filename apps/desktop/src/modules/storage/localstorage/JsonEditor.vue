@@ -13,11 +13,15 @@ const props = defineProps<{
   value: string;
   readonly?: boolean;
   lineClass?: (lineIndex: number) => string;
+  lineCharHighlight?: (
+    lineIndex: number,
+  ) => { ranges: [number, number][]; kind: "add" | "remove" } | null;
 }>();
 
 const emit = defineEmits<{
   "update:value": [value: string];
   "validity-change": [valid: boolean];
+  scroll: [top: number];
 }>();
 
 // ─── JSON error ────────────────────────────────────────────────────────────────
@@ -171,13 +175,22 @@ function clearFilter() {
   filterText.value = "";
 }
 
+// Line height matches `leading-5` (h-5 = 20px).
+const LINE_HEIGHT = 20;
+
+// Scroll the textarea directly to the matched line so the overlay stays in sync.
+// Using scrollIntoView on overlay spans caused the textarea scroll position to
+// diverge, making the next user wheel-scroll jump back to line 1.
 function scrollToMatch() {
   const m = matchPositions.value[activeMatchIdx.value];
   if (!m) return;
   nextTick(() => {
-    document
-      .querySelector(`[data-match-line="${m.lineIdx}"]`)
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const ta = textareaRef.value;
+    if (!ta) return;
+    const targetTop = m.lineIdx * LINE_HEIGHT;
+    const center = Math.max(0, targetTop - ta.clientHeight / 2 + LINE_HEIGHT / 2);
+    ta.scrollTop = center;
+    syncScroll();
   });
 }
 
@@ -189,6 +202,21 @@ function escHtml(s: string) {
 
 const JSON_RE =
   /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g;
+
+// Build HTML for a line with character ranges highlighted. Works on raw string
+// so HTML escaping is applied per-segment (avoids entity-position mismatches).
+function highlightCharRanges(raw: string, ranges: [number, number][], cls: string): string {
+  if (ranges.length === 0) return escHtml(raw);
+  const parts: string[] = [];
+  let last = 0;
+  for (const [start, end] of ranges) {
+    if (start > last) parts.push(escHtml(raw.slice(last, start)));
+    parts.push(`<span class="${cls}">${escHtml(raw.slice(start, end))}</span>`);
+    last = end;
+  }
+  if (last < raw.length) parts.push(escHtml(raw.slice(last)));
+  return parts.join("");
+}
 
 function highlightLine(raw: string, lineIdx: number): string {
   let e = escHtml(raw);
@@ -219,6 +247,17 @@ function highlightLine(raw: string, lineIdx: number): string {
     return parts.join("");
   }
 
+  // Char-level diff highlighting (from parent diff viewer) takes priority over
+  // syntax coloring so the changed characters are immediately visible.
+  const charHighlight = props.lineCharHighlight?.(lineIdx);
+  if (charHighlight && charHighlight.ranges.length > 0) {
+    const cls =
+      charHighlight.kind === "add"
+        ? "bg-emerald-500/40 rounded-[1px]"
+        : "bg-red-500/40 rounded-[1px]";
+    return highlightCharRanges(raw, charHighlight.ranges, cls);
+  }
+
   return e.replace(JSON_RE, (m) => {
     let cls = "text-[#b5cea8]";
     if (m.startsWith('"')) cls = m.endsWith(":") ? "text-[#9cdcfe]" : "text-[#ce9178]";
@@ -239,6 +278,11 @@ const previewScrollRef = ref<HTMLElement | null>(null);
 // Used by gutter translateY — reactive scroll position
 const taScrollTop = ref(0);
 
+// Tracks the last scroll position we emitted so we only emit on actual changes.
+// This breaks the circular chain when two editors sync each other:
+// A scrolls → emits → B.setScrollTop → emits → A.setScrollTop → no-op (same value).
+let _lastScrollTop = -1;
+
 function syncScroll() {
   if (!textareaRef.value) return;
   const { scrollTop, scrollLeft } = textareaRef.value;
@@ -250,6 +294,17 @@ function syncScroll() {
   if (lineNumbersRef.value) {
     lineNumbersRef.value.scrollTop = scrollTop;
   }
+  if (scrollTop !== _lastScrollTop) {
+    _lastScrollTop = scrollTop;
+    emit("scroll", scrollTop);
+  }
+}
+
+// Called by a parent (e.g. JsonDiffViewer) to synchronise scroll position.
+function setScrollTop(top: number) {
+  if (!textareaRef.value) return;
+  textareaRef.value.scrollTop = top;
+  syncScroll();
 }
 
 function handleWheel(e: WheelEvent) {
@@ -295,6 +350,7 @@ defineExpose({
   textareaRef,
   filterInputRef,
   isValid,
+  setScrollTop,
 });
 </script>
 

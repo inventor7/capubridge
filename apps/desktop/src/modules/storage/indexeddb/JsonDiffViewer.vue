@@ -90,17 +90,20 @@ const beforeText = computed(() => {
   return stringifyWithPreferredOrder(props.beforeValue, parsedAfter.value);
 });
 
-const beforeLineCount = computed(() => beforeText.value.split("\n").length);
-const afterLineCount = computed(() => props.afterText.split("\n").length);
+// When beforeValue is undefined (new record), treat it as zero lines so all
+// after-lines are classified as "add" rather than "change" vs an empty string.
+const beforeLines = computed(() =>
+  props.beforeValue === undefined ? [] : beforeText.value.split("\n"),
+);
 
-function buildSimpleDiff(beforeLines: string[], afterLines: string[]): DiffRow[] {
+function buildSimpleDiff(bl: string[], al: string[]): DiffRow[] {
   const rows: DiffRow[] = [];
-  const maxLength = Math.max(beforeLines.length, afterLines.length);
+  const maxLength = Math.max(bl.length, al.length);
 
   for (let index = 0; index < maxLength; index += 1) {
-    const same = beforeLines[index] === afterLines[index];
-    const leftMissing = index >= beforeLines.length;
-    const rightMissing = index >= afterLines.length;
+    const same = bl[index] === al[index];
+    const leftMissing = index >= bl.length;
+    const rightMissing = index >= al.length;
 
     rows.push({
       leftLine: leftMissing ? null : index,
@@ -113,9 +116,9 @@ function buildSimpleDiff(beforeLines: string[], afterLines: string[]): DiffRow[]
   return rows;
 }
 
-function buildLcsDiff(beforeLines: string[], afterLines: string[]): DiffRow[] {
-  const leftLength = beforeLines.length;
-  const rightLength = afterLines.length;
+function buildLcsDiff(bl: string[], al: string[]): DiffRow[] {
+  const leftLength = bl.length;
+  const rightLength = al.length;
   const cells = Array.from({ length: leftLength + 1 }, () =>
     Array<number>(rightLength + 1).fill(0),
   );
@@ -134,7 +137,7 @@ function buildLcsDiff(beforeLines: string[], afterLines: string[]): DiffRow[] {
       setCell(
         left,
         right,
-        beforeLines[left] === afterLines[right]
+        bl[left] === al[right]
           ? getCell(left + 1, right + 1) + 1
           : Math.max(getCell(left + 1, right), getCell(left, right + 1)),
       );
@@ -146,7 +149,7 @@ function buildLcsDiff(beforeLines: string[], afterLines: string[]): DiffRow[] {
   let right = 0;
 
   while (left < leftLength || right < rightLength) {
-    if (left < leftLength && right < rightLength && beforeLines[left] === afterLines[right]) {
+    if (left < leftLength && right < rightLength && bl[left] === al[right]) {
       rows.push({
         leftLine: left,
         rightLine: right,
@@ -205,27 +208,34 @@ function diffClass(kind: DiffKind) {
 }
 
 const diffRows = computed(() => {
-  const beforeLines = beforeText.value.split("\n");
-  const afterLines = props.afterText.split("\n");
-  const cellCount = beforeLines.length * afterLines.length;
-  return cellCount > 48400
-    ? buildSimpleDiff(beforeLines, afterLines)
-    : buildLcsDiff(beforeLines, afterLines);
+  const bl = beforeLines.value;
+  const al = props.afterText.split("\n");
+  const cellCount = bl.length * al.length;
+  return cellCount > 48400 ? buildSimpleDiff(bl, al) : buildLcsDiff(bl, al);
 });
 
-const diffStats = computed(() => {
-  let add = 0;
-  let update = 0;
-  let remove = 0;
+// Find character-level diff ranges between two changed lines using the
+// common-prefix / common-suffix approach (fast, readable for JSON diffs).
+function findCharDiffRanges(
+  before: string,
+  after: string,
+): { beforeRanges: [number, number][]; afterRanges: [number, number][] } {
+  const minLen = Math.min(before.length, after.length);
+  let start = 0;
+  while (start < minLen && before[start] === after[start]) start++;
 
-  for (const row of diffRows.value) {
-    if (row.rightKind === "add") add += 1;
-    if (row.leftKind === "remove") remove += 1;
-    if (row.leftKind === "change" || row.rightKind === "change") update += 1;
+  let beforeEnd = before.length;
+  let afterEnd = after.length;
+  while (beforeEnd > start && afterEnd > start && before[beforeEnd - 1] === after[afterEnd - 1]) {
+    beforeEnd--;
+    afterEnd--;
   }
 
-  return { add, update, remove };
-});
+  return {
+    beforeRanges: beforeEnd > start ? [[start, beforeEnd]] : [],
+    afterRanges: afterEnd > start ? [[start, afterEnd]] : [],
+  };
+}
 
 const diffLineClasses = computed(() => {
   const before = new Map<number, string>();
@@ -241,6 +251,51 @@ const diffLineClasses = computed(() => {
     after: (lineIndex: number) => after.get(lineIndex) ?? "",
   };
 });
+
+// Char-level ranges for lines where both sides changed (kind === "change").
+// Only "change" rows get inline char highlighting; pure add/remove rows are
+// already fully coloured by their line background.
+const lineCharHighlight = computed(() => {
+  const bl = beforeLines.value;
+  const al = props.afterText.split("\n");
+  const before = new Map<number, { ranges: [number, number][]; kind: "add" | "remove" }>();
+  const after = new Map<number, { ranges: [number, number][]; kind: "add" | "remove" }>();
+
+  for (const row of diffRows.value) {
+    if (
+      row.leftKind === "change" &&
+      row.rightKind === "change" &&
+      row.leftLine !== null &&
+      row.rightLine !== null
+    ) {
+      const { beforeRanges, afterRanges } = findCharDiffRanges(
+        bl[row.leftLine] ?? "",
+        al[row.rightLine] ?? "",
+      );
+      if (beforeRanges.length > 0)
+        before.set(row.leftLine, { ranges: beforeRanges, kind: "remove" });
+      if (afterRanges.length > 0) after.set(row.rightLine, { ranges: afterRanges, kind: "add" });
+    }
+  }
+
+  return {
+    before: (i: number) => before.get(i) ?? null,
+    after: (i: number) => after.get(i) ?? null,
+  };
+});
+
+// ─── Scroll sync ───────────────────────────────────────────────────────────────
+// The _lastScrollTop change-detection inside JsonEditor's syncScroll naturally
+// terminates circular calls: A→B→A fires syncScroll on A but emits nothing
+// because the position is already at the target value.
+
+function onBeforeScroll(top: number) {
+  afterEditorRef.value?.setScrollTop(top);
+}
+
+function onAfterScroll(top: number) {
+  beforeEditorRef.value?.setScrollTop(top);
+}
 
 function focusSearch() {
   afterEditorRef.value?.filterInputRef?.focus();
@@ -273,88 +328,30 @@ defineExpose({
   <div
     class="grid h-full min-h-0 grid-cols-2 overflow-hidden rounded-md border border-border/30 bg-surface-1"
   >
+    <!-- Before panel -->
     <div class="flex min-h-0 min-w-0 flex-col border-r border-border/30">
-      <div
-        class="flex h-8 shrink-0 items-center justify-between border-b border-red-500/20 bg-red-500/[0.035] px-3 py-1.5 text-xs"
-      >
-        <span class="font-medium text-red-300/90">Before</span>
-        <span class="font-mono text-[10px] text-muted-foreground/45">
-          {{ beforeLineCount }} lines
-        </span>
-      </div>
-      <div
-        class="flex h-7 shrink-0 items-center gap-1 border-b border-border/20 bg-surface-2/50 px-2"
-      >
-        <span
-          v-if="diffStats.remove"
-          class="rounded border border-red-500/25 bg-red-500/10 px-1.5 py-0.5 font-mono text-[10px] text-red-400"
-        >
-          -{{ diffStats.remove }}
-        </span>
-        <span
-          v-if="diffStats.update"
-          class="rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-400"
-        >
-          ~{{ diffStats.update }}
-        </span>
-        <span
-          v-if="!diffStats.remove && !diffStats.update"
-          class="text-[10px] text-muted-foreground/35"
-        >
-          no changed lines
-        </span>
-      </div>
-      <div class="min-h-0 flex-1 overflow-hidden">
-        <JsonEditor
-          ref="beforeEditorRef"
-          :value="beforeText"
-          readonly
-          :line-class="diffLineClasses.before"
-        />
-      </div>
+      <JsonEditor
+        ref="beforeEditorRef"
+        :value="beforeText"
+        readonly
+        :line-class="diffLineClasses.before"
+        :line-char-highlight="lineCharHighlight.before"
+        @scroll="onBeforeScroll"
+      />
     </div>
 
+    <!-- After panel -->
     <div class="flex min-h-0 min-w-0 flex-col">
-      <div
-        class="flex h-8 shrink-0 items-center justify-between border-b border-emerald-500/20 bg-emerald-500/[0.035] px-3 py-1.5 text-xs"
-      >
-        <span class="font-medium text-emerald-300/90">After</span>
-        <span class="font-mono text-[10px] text-muted-foreground/45">
-          {{ afterLineCount }} lines
-        </span>
-      </div>
-      <div
-        class="flex h-7 shrink-0 items-center gap-1 border-b border-border/20 bg-surface-2/50 px-2"
-      >
-        <span
-          v-if="diffStats.add"
-          class="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400"
-        >
-          +{{ diffStats.add }}
-        </span>
-        <span
-          v-if="diffStats.update"
-          class="rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-400"
-        >
-          ~{{ diffStats.update }}
-        </span>
-        <span
-          v-if="!diffStats.add && !diffStats.update"
-          class="text-[10px] text-muted-foreground/35"
-        >
-          no changed lines
-        </span>
-      </div>
-      <div class="min-h-0 flex-1 overflow-hidden">
-        <JsonEditor
-          ref="afterEditorRef"
-          :value="afterText"
-          :readonly="readonly"
-          :line-class="diffLineClasses.after"
-          @update:value="emit('update:afterText', $event)"
-          @validity-change="emit('validity-change', $event)"
-        />
-      </div>
+      <JsonEditor
+        ref="afterEditorRef"
+        :value="afterText"
+        :readonly="readonly"
+        :line-class="diffLineClasses.after"
+        :line-char-highlight="lineCharHighlight.after"
+        @update:value="emit('update:afterText', $event)"
+        @validity-change="emit('validity-change', $event)"
+        @scroll="onAfterScroll"
+      />
     </div>
   </div>
 </template>
