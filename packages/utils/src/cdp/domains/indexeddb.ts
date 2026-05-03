@@ -410,6 +410,97 @@ export class IDBDomain {
     if (parsed.error) throw new Error(parsed.error);
   }
 
+  async clearObjectStore(
+    _securityOrigin: string,
+    databaseName: string,
+    objectStoreName: string,
+  ): Promise<void> {
+    const result = await this.client.send<{ result: { result: unknown } }>("Runtime.evaluate", {
+      expression: `
+        (async () => {
+          try {
+            const req = indexedDB.open(${JSON.stringify(databaseName)});
+            const db = await new Promise((resolve, reject) => {
+              req.onsuccess = () => resolve(req.result);
+              req.onerror = () => reject(req.error?.message ?? 'open failed');
+            });
+            const tx = db.transaction(${JSON.stringify(objectStoreName)}, 'readwrite');
+            tx.objectStore(${JSON.stringify(objectStoreName)}).clear();
+            await new Promise((resolve, reject) => {
+              tx.oncomplete = () => resolve(true);
+              tx.onerror = () => reject(tx.error?.message ?? 'clear failed');
+            });
+            db.close();
+            return JSON.stringify({ ok: true });
+          } catch (e) {
+            return JSON.stringify({ error: String(e) });
+          }
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const raw = (result.result as Record<string, unknown>).value as string;
+    const parsed = JSON.parse(raw) as { ok?: boolean; error?: string };
+    if (parsed.error) throw new Error(parsed.error);
+  }
+
+  async deleteObjectStore(
+    _securityOrigin: string,
+    databaseName: string,
+    objectStoreName: string,
+  ): Promise<void> {
+    const result = await this.client.send<{ result: { result: unknown } }>("Runtime.evaluate", {
+      expression: `
+        (async () => {
+          try {
+            const openReq = indexedDB.open(${JSON.stringify(databaseName)});
+            const currentVersion = await new Promise((resolve, reject) => {
+              openReq.onsuccess = () => { const v = openReq.result.version; openReq.result.close(); resolve(v); };
+              openReq.onerror = () => reject(openReq.error?.message ?? 'open failed');
+            });
+            const upgradeReq = indexedDB.open(${JSON.stringify(databaseName)}, currentVersion + 1);
+            await new Promise((resolve, reject) => {
+              upgradeReq.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (db.objectStoreNames.contains(${JSON.stringify(objectStoreName)})) {
+                  db.deleteObjectStore(${JSON.stringify(objectStoreName)});
+                }
+              };
+              upgradeReq.onsuccess = () => { upgradeReq.result.close(); resolve(true); };
+              upgradeReq.onerror = () => reject(upgradeReq.error?.message ?? 'upgrade failed');
+            });
+            return JSON.stringify({ ok: true });
+          } catch (e) {
+            return JSON.stringify({ error: String(e) });
+          }
+        })()
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const raw = (result.result as Record<string, unknown>).value as string;
+    const parsed = JSON.parse(raw) as { ok?: boolean; error?: string };
+    if (parsed.error) throw new Error(parsed.error);
+  }
+
+  async deleteDatabase(_securityOrigin: string, databaseName: string): Promise<void> {
+    const result = await this.client.send<{ result: { result: unknown } }>("Runtime.evaluate", {
+      expression: `
+        new Promise((resolve, reject) => {
+          const req = indexedDB.deleteDatabase(${JSON.stringify(databaseName)});
+          req.onsuccess = () => resolve(JSON.stringify({ ok: true }));
+          req.onerror = () => reject(JSON.stringify({ error: req.error?.message ?? 'delete failed' }));
+        })
+      `,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const raw = (result.result as Record<string, unknown>).value as string;
+    const parsed = JSON.parse(raw) as { ok?: boolean; error?: string };
+    if (parsed.error) throw new Error(parsed.error);
+  }
+
   async getData(params: GetDataParams): Promise<GetDataResult> {
     const isLocalForage = params.databaseName === "localforage";
 

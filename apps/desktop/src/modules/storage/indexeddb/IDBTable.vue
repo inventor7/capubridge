@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, h, watch } from "vue";
+import { computed, ref, h, watch, onUnmounted, nextTick } from "vue";
 import {
   useVueTable,
   getCoreRowModel,
@@ -18,6 +18,7 @@ import {
   type ColumnPinningState,
   type ColumnDef,
   type ColumnSizingState,
+  type Row,
 } from "@tanstack/vue-table";
 import type { IDBRecord, StoreInfo } from "utils";
 import type { IndexedDBDecoratedRecord } from "@/modules/storage/changes/useIndexedDBChangeOverlay";
@@ -97,11 +98,14 @@ const expanded = ref<ExpandedState>({});
 const columnVisibility = ref<VisibilityState>({});
 const columnOrder = ref<ColumnOrderState>([]);
 const columnPinning = ref<ColumnPinningState>({
-  left: ["__actions", "key"],
+  left: ["__actions"],
   right: [],
 });
 const rowSelection = ref<Record<string, boolean>>({});
 const columnSizing = ref<ColumnSizingState>({});
+// key → original value before the edit (for diff view)
+const locallyModifiedData = ref(new Map<string, unknown>());
+const tableScrollEl = ref<HTMLElement | null>(null);
 
 // Confirmation dialog state
 const showDeleteConfirm = ref(false);
@@ -137,9 +141,10 @@ watch(
     expanded.value = {};
     columnVisibility.value = {};
     columnOrder.value = [];
-    columnPinning.value = { left: ["__actions", "key"], right: [] };
+    columnPinning.value = { left: ["__actions"], right: [] };
     rowSelection.value = {};
     columnSizing.value = {};
+    locallyModifiedData.value = new Map();
     resetAdvancedFilters();
   },
 );
@@ -185,6 +190,145 @@ function getChangeIcon(record: IDBRecord) {
   if (operation === "delete") return Trash2;
   return null;
 }
+
+function getStickyRowBg(row: Row<IDBRecord>): string {
+  if (row.getIsSelected()) return "bg-surface-3";
+  const op = getChangeOperation(row.original);
+  if (op === "add") return "bg-emerald-500/[0.04]";
+  if (op === "update") return "bg-amber-500/[0.04]";
+  if (op === "delete") return "bg-red-500/[0.04]";
+  return "bg-background";
+}
+
+// ─── Local modification tracking ─────────────────────────────────────────────
+function recordKeyStr(key: IDBValidKey): string {
+  return JSON.stringify(key);
+}
+
+function isRowLocallyModified(row: Row<IDBRecord>): boolean {
+  // Don't show local-modify indicator when the change overlay already owns this row
+  if (getChangeOperation(row.original)) return false;
+  return locallyModifiedData.value.has(recordKeyStr(row.original.key));
+}
+
+/** Returns a single mutually-exclusive background class for the row.
+ *  Using a function (not a CSS-class object) avoids UnoCSS rule-order races
+ *  where two bg-* utilities end up on the same element and the wrong one wins. */
+function getRowBgClass(row: Row<IDBRecord>): string {
+  if (row.getIsSelected()) return "bg-accent/10!";
+  const op = getChangeOperation(row.original);
+  if (op === "add") return "bg-emerald-500/4";
+  if (op === "update") return "bg-amber-500/4";
+  if (op === "delete") return "bg-red-500/4 opacity-75";
+  if (isRowLocallyModified(row)) return "bg-blue-500/5";
+  return "";
+}
+
+// Preserve scroll position when grouping layout changes
+watch(
+  grouping,
+  () => {
+    const el = tableScrollEl.value;
+    if (!el) return;
+    const savedTop = el.scrollTop;
+    void nextTick(() => {
+      el.scrollTop = savedTop;
+    });
+  },
+  { flush: "sync" },
+);
+
+// ─── Inline cell editing ─────────────────────────────────────────────────────
+const editingCell = ref<{
+  rowId: string;
+  columnId: string;
+  value: string;
+} | null>(null);
+let clickTimer: ReturnType<typeof setTimeout> | null = null;
+
+const vFocus = { mounted: (el: HTMLElement) => el.focus() };
+
+function getCellEditValue(row: Row<IDBRecord>, columnId: string): string {
+  if (columnId === "value") {
+    const v = row.original.value;
+    if (v === null || v === undefined) return "";
+    if (typeof v === "object") return JSON.stringify(v, null, 2);
+    return String(v);
+  }
+  const v = (row.original.value as Record<string, unknown>)?.[columnId];
+  if (v === null || v === undefined) return "";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function handleCellClick(row: Row<IDBRecord>, columnId: string) {
+  if (columnId === "__actions") return;
+
+  if (clickTimer !== null) {
+    clearTimeout(clickTimer);
+    clickTimer = null;
+    if (columnId === "key") return;
+    editingCell.value = {
+      rowId: row.id,
+      columnId,
+      value: getCellEditValue(row, columnId),
+    };
+    return;
+  }
+
+  clickTimer = setTimeout(() => {
+    clickTimer = null;
+    const rows = table.getFilteredRowModel().rows;
+    const idx = rows.findIndex((r) => r.id === row.id);
+    openRowDetail(row.original, idx >= 0 ? idx : undefined);
+  }, 220);
+}
+
+function commitInlineEdit() {
+  if (!editingCell.value) return;
+  const { rowId, columnId, value } = editingCell.value;
+  const rows = table.getRowModel().rows;
+  const found = rows.find((r) => r.id === rowId);
+  if (!found) {
+    editingCell.value = null;
+    return;
+  }
+
+  const record: IDBRecord = { ...found.original };
+  if (columnId === "value") {
+    try {
+      record.value = JSON.parse(value);
+    } catch {
+      record.value = value;
+    }
+  } else {
+    let parsed: unknown = value;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      /* keep as string */
+    }
+    record.value = {
+      ...(record.value as Record<string, unknown>),
+      [columnId]: parsed,
+    };
+  }
+
+  const beforeValue = found.original.value;
+  emit("recordEdit", record);
+  const next = new Map(locallyModifiedData.value);
+  next.set(recordKeyStr(record.key), beforeValue);
+  locallyModifiedData.value = next;
+  editingCell.value = null;
+}
+
+function cancelInlineEdit() {
+  editingCell.value = null;
+}
+
+onUnmounted(() => {
+  if (clickTimer !== null) clearTimeout(clickTimer);
+});
 
 const isKeyValueStore = computed(() => {
   if (props.records.length === 0) return true;
@@ -467,26 +611,34 @@ const {
   totalRecords: () =>
     props.showChangesOnly ? table.getFilteredRowModel().rows.length : props.totalRecords,
   fetchRecord: () => (props.showChangesOnly ? undefined : props.fetchRecord),
-  onEdit: (record) => emit("recordEdit", record),
+  onEdit: (record) => {
+    const currentRow = table
+      .getRowModel()
+      .rows.find((r) => recordKeyStr(r.original.key) === recordKeyStr(record.key));
+    const beforeValue = currentRow?.original.value;
+    emit("recordEdit", record);
+    const next = new Map(locallyModifiedData.value);
+    next.set(recordKeyStr(record.key), beforeValue);
+    locallyModifiedData.value = next;
+  },
   onDelete: (key) => emit("recordDelete", key),
   canMutate: (record) => !isDeletedChange(record as IDBRecord),
 });
 
 const selectedRecordChange = computed(() => getRecordChange(selectedRow.value));
+const isSelectedRowLocallyModified = computed(
+  () => !!selectedRow.value && locallyModifiedData.value.has(recordKeyStr(selectedRow.value.key)),
+);
+const selectedRowLocalBeforeValue = computed(() =>
+  selectedRow.value
+    ? locallyModifiedData.value.get(recordKeyStr(selectedRow.value.key))
+    : undefined,
+);
 
 // ─── Computed Stats ──────────────────────────────────────────────────────────
 const filteredRowCount = computed(() => table.getFilteredRowModel().rows.length);
 const selectedRowCount = computed(() => table.getSelectedRowModel().rows.length);
-const visibleRows = computed(() => {
-  const rows = table.getRowModel().rows;
-
-  if (grouping.value.length > 0) return rows;
-
-  const changedRows = rows.filter((row) => getChangeOperation(row.original));
-  const unchangedRows = rows.filter((row) => !getChangeOperation(row.original));
-
-  return [...changedRows, ...unchangedRows];
-});
+const visibleRows = computed(() => table.getRowModel().rows);
 
 // ─── Grouping Helpers ────────────────────────────────────────────────────────
 const isColumnGrouped = (columnId: string) => grouping.value.includes(columnId);
@@ -566,7 +718,7 @@ function confirmBulkDelete() {
     />
 
     <!-- ─── Table ────────────────────────────────────────────────────────── -->
-    <div class="flex-1 overflow-auto min-h-0 relative">
+    <div ref="tableScrollEl" class="flex-1 overflow-auto min-h-0 relative">
       <!-- Loading skeleton -->
       <div v-if="isLoading && records.length === 0" class="flex flex-col gap-px p-1">
         <div
@@ -625,10 +777,10 @@ function confirmBulkDelete() {
               v-for="header in table.getFlatHeaders().filter((h) => h.column.getIsVisible())"
               :key="header.id"
               :style="{ width: header.getSize() + 'px' }"
-              class="group top-0 z-1 h-10 border-b border-border/30 bg-surface-2 px-3 text-left text-xs font-medium text-muted-foreground/50 select-none relative"
+              class="group sticky top-0 z-10 h-10 border-b border-border/30 bg-surface-2 px-3 text-left text-xs font-medium text-muted-foreground/50 select-none relative"
               :class="{
-                'sticky left-0 z-2': header.column.getIsPinned() === 'left',
-                'sticky right-0 z-2': header.column.getIsPinned() === 'right',
+                'left-0 z-20': header.column.getIsPinned() === 'left',
+                'right-0 z-20': header.column.getIsPinned() === 'right',
               }"
             >
               <!-- Column actions dropdown -->
@@ -820,26 +972,44 @@ function confirmBulkDelete() {
             <tr
               v-else
               class="group select-none border-b border-border/20 hover:bg-surface-2/50 transition-colors duration-75"
-              :class="{
-                'bg-surface-3/30': row.getIsGrouped(),
-                'pl-6': row.depth > 0,
-                'bg-accent/10!': row.getIsSelected(),
-                'bg-emerald-500/[0.04]': getChangeOperation(row.original) === 'add',
-                'bg-amber-500/[0.04]': getChangeOperation(row.original) === 'update',
-                'bg-red-500/[0.04] opacity-75': getChangeOperation(row.original) === 'delete',
-              }"
+              :class="[getRowBgClass(row), { 'pl-6': row.depth > 0 }]"
             >
               <td
                 v-for="cell in row.getVisibleCells()"
                 :key="cell.id"
                 class="h-9 overflow-hidden text-ellipsis whitespace-nowrap px-3 font-mono text-foreground/80 text-xs"
-                :class="{
-                  'sticky left-0 z-3': cell.column.getIsPinned() === 'left',
-                  'sticky right-0 z-3': cell.column.getIsPinned() === 'right',
-                }"
-                @dblclick="openRowDetail(row.original)"
+                :class="[
+                  cell.column.getIsPinned() === 'left' && 'sticky left-0 z-3',
+                  cell.column.getIsPinned() === 'right' && 'sticky right-0 z-3',
+                  cell.column.getIsPinned()
+                    ? [
+                        getStickyRowBg(row),
+                        'group-hover:bg-surface-2',
+                        'transition-colors',
+                        'duration-75',
+                      ]
+                    : null,
+                ]"
+                @click="handleCellClick(row, cell.column.id)"
               >
-                <FlexRender :render="cell.column.columnDef.cell" :props="cell.getContext()" />
+                <input
+                  v-if="editingCell?.rowId === row.id && editingCell?.columnId === cell.column.id"
+                  v-focus
+                  :value="editingCell.value"
+                  class="w-full bg-transparent font-mono text-xs text-foreground outline-none border border-primary/50 rounded px-1 -mx-1"
+                  @input="
+                    editingCell && (editingCell.value = ($event.target as HTMLInputElement).value)
+                  "
+                  @keydown.enter.prevent="commitInlineEdit"
+                  @keydown.escape.prevent="cancelInlineEdit"
+                  @blur="cancelInlineEdit"
+                  @click.stop
+                />
+                <FlexRender
+                  v-else
+                  :render="cell.column.columnDef.cell"
+                  :props="cell.getContext()"
+                />
               </td>
             </tr>
           </template>
@@ -869,7 +1039,7 @@ function confirmBulkDelete() {
         </template>
 
         <span class="text-[10px] text-muted-foreground/30">
-          Drag column edges to resize · Double-click row to view details
+          Drag column edges to resize · Click row to view · Double-click cell to edit
         </span>
       </div>
     </div>
@@ -889,6 +1059,8 @@ function confirmBulkDelete() {
       :json-editor-valid="jsonEditorValid"
       :change="selectedRecordChange"
       :read-only="isDeletedChange(selectedRow)"
+      :locally-modified="isSelectedRowLocallyModified"
+      :local-before-value="selectedRowLocalBeforeValue"
       @navigate="navigateRow"
       @save="saveEdit"
       @delete="deleteRow"

@@ -13,8 +13,10 @@ import {
   Eye,
   MoreVertical,
   Eraser,
+  Trash2,
 } from "lucide-vue-next";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import {
@@ -311,6 +313,83 @@ async function handleRecordDeleteBulk(keys: IDBValidKey[]) {
   }
 }
 
+// ─── Destructive actions ──────────────────────────────────────────────────────
+const confirmDialog = ref<{
+  open: boolean;
+  title: string;
+  description: string;
+  action: () => Promise<void>;
+}>({ open: false, title: "", description: "", action: async () => {} });
+
+function openConfirm(title: string, description: string, action: () => Promise<void>) {
+  confirmDialog.value = { open: true, title, description, action };
+}
+
+async function runConfirmedAction() {
+  await confirmDialog.value.action();
+  confirmDialog.value.open = false;
+}
+
+function handleClearStore(db: IDBDatabaseInfo, store: string) {
+  openConfirm(
+    "Clear all records",
+    `Delete every record in "${store}"? This cannot be undone.`,
+    async () => {
+      const domain = getDomain();
+      if (!domain) return;
+      try {
+        await domain.clearObjectStore(db.origin, db.name, store);
+        void refetchRecords();
+        void refetchStoreInfo();
+      } catch (err) {
+        console.error("[IDB] clearObjectStore failed:", err);
+      }
+    },
+  );
+}
+
+function handleDeleteStore(db: IDBDatabaseInfo, store: string) {
+  openConfirm(
+    "Delete table",
+    `Permanently delete the object store "${store}" and all its data? The database schema will be migrated.`,
+    async () => {
+      const domain = getDomain();
+      if (!domain) return;
+      try {
+        await domain.deleteObjectStore(db.origin, db.name, store);
+        void refetchDbs();
+        // Navigate away if current store was deleted
+        if (dbName.value === db.name && storeName.value === store) {
+          void router.push(`/storage/indexeddb/${encodeURIComponent(db.name)}`);
+        }
+      } catch (err) {
+        console.error("[IDB] deleteObjectStore failed:", err);
+      }
+    },
+  );
+}
+
+function handleDeleteDatabase(db: IDBDatabaseInfo) {
+  openConfirm(
+    "Delete database",
+    `Permanently delete the entire database "${db.name}" and all its stores? This cannot be undone.`,
+    async () => {
+      const domain = getDomain();
+      if (!domain) return;
+      try {
+        await domain.deleteDatabase(db.origin, db.name);
+        void refetchDbs();
+        // Navigate away if current db was deleted
+        if (dbName.value === db.name) {
+          void router.push("/storage/indexeddb");
+        }
+      } catch (err) {
+        console.error("[IDB] deleteDatabase failed:", err);
+      }
+    },
+  );
+}
+
 function refetch() {
   void refetchDbs();
   void refetchRecords();
@@ -515,6 +594,14 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
                         <Eraser class="h-3.5 w-3.5 mr-2" />
                         Clear DB changes
                       </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        class="text-error focus:text-error"
+                        @click="handleDeleteDatabase(db)"
+                      >
+                        <Trash2 class="h-3.5 w-3.5 mr-2" />
+                        Delete database
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -600,6 +687,21 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
                           >
                             <Eraser class="h-3.5 w-3.5 mr-2" />
                             Clear changes
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            class="text-error focus:text-error"
+                            @click="handleClearStore(db, storeItem)"
+                          >
+                            <Eraser class="h-3.5 w-3.5 mr-2" />
+                            Clear all records
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            class="text-error focus:text-error"
+                            @click="handleDeleteStore(db, storeItem)"
+                          >
+                            <Trash2 class="h-3.5 w-3.5 mr-2" />
+                            Delete table
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -693,4 +795,14 @@ const hiddenStoreCount = computed(() => hiddenStores.value.size);
       </ResizablePanel>
     </ResizablePanelGroup>
   </div>
+
+  <ConfirmDialog
+    v-model:open="confirmDialog.open"
+    :title="confirmDialog.title"
+    :description="confirmDialog.description"
+    confirm-text="Confirm"
+    cancel-text="Cancel"
+    variant="destructive"
+    @confirm="runConfirmedAction"
+  />
 </template>

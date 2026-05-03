@@ -97,7 +97,7 @@ function toggleGrouping(columnId: string) {
 }
 
 function toggleVisibility(columnId: string, currentVisible: boolean) {
-  emit("update:visibility", columnId, !currentVisible);
+  props.table.getColumn(columnId)?.toggleVisibility(!currentVisible);
 }
 
 const sortedColumns = computed(() => {

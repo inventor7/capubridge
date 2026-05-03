@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import JsonEditor from "@/modules/storage/localstorage/JsonEditor.vue";
 import JsonDiffViewer from "./JsonDiffViewer.vue";
 import type { IndexedDBRecordChangeEntry } from "@/types/storageChanges.types";
-import { ChevronDown, Copy, Check, Info, AlertTriangle } from "lucide-vue-next";
+import { ChevronDown, Copy, Check, Info, AlertTriangle, PencilLine } from "lucide-vue-next";
 
 const props = defineProps<{
   open: boolean;
@@ -20,6 +20,8 @@ const props = defineProps<{
   jsonEditorValid: boolean;
   change?: IndexedDBRecordChangeEntry | null;
   readOnly?: boolean;
+  locallyModified?: boolean;
+  localBeforeValue?: unknown;
 }>();
 
 const emit = defineEmits<{
@@ -38,9 +40,9 @@ const viewMode = ref<"diff" | "editor">("editor");
 const diffAfterText = computed(() => (props.change?.operation === "delete" ? "" : props.editJson));
 
 watch(
-  () => [props.change?.id, props.readOnly] as const,
+  () => [props.change?.id, props.readOnly, props.locallyModified] as const,
   () => {
-    viewMode.value = props.change ? "diff" : "editor";
+    viewMode.value = props.change || props.locallyModified ? "diff" : "editor";
   },
   { immediate: true },
 );
@@ -129,6 +131,13 @@ function handleKeydown(e: KeyboardEvent) {
               Unsaved
             </span>
             <span
+              v-if="props.locallyModified && !badge"
+              class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-medium flex items-center gap-1"
+            >
+              <PencilLine :size="10" />
+              Saved locally
+            </span>
+            <span
               v-if="props.change"
               class="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-3 text-muted-foreground/70 font-medium"
             >
@@ -185,7 +194,11 @@ function handleKeydown(e: KeyboardEvent) {
       </DialogHeader>
 
       <div class="flex-1 overflow-hidden p-4">
-        <Tabs v-if="props.change" v-model="viewMode" class="flex h-full min-h-0 flex-col gap-2">
+        <Tabs
+          v-if="props.change || props.locallyModified"
+          v-model="viewMode"
+          class="flex h-full min-h-0 flex-col gap-2"
+        >
           <TabsList class="h-8 w-fit shrink-0">
             <TabsTrigger value="diff" class="h-7 px-3 text-xs">Diff</TabsTrigger>
             <TabsTrigger value="editor" class="h-7 px-3 text-xs" :disabled="props.readOnly">
@@ -195,7 +208,7 @@ function handleKeydown(e: KeyboardEvent) {
           <TabsContent value="diff" class="min-h-0 flex-1 overflow-hidden">
             <JsonDiffViewer
               ref="diffViewerRef"
-              :before-value="props.change.beforeValue"
+              :before-value="props.change?.beforeValue ?? props.localBeforeValue"
               :after-text="diffAfterText"
               :readonly="props.readOnly"
               @update:after-text="emit('update:editJson', $event)"
