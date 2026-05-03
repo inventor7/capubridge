@@ -7,6 +7,9 @@
     "build": "vitepress build",
     "preview": "vitepress preview"
   },
+  "dependencies": {
+    "oxc-minify": "catalog:"
+  },
   "devDependencies": {
     "vitepress": "catalog:",
     "vue": "catalog:"

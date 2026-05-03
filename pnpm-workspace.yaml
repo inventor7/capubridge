@@ -29,6 +29,7 @@ catalog:
   lucide-vue-next: 1.0.0
   motion-v: ^1.10.3
   ogl: ^1.0.11
+  oxc-minify: ^0.128.0
   pinia: ^3.0.4
   reka-ui: 2.9.3
   rrweb: 2.0.0-alpha.4
